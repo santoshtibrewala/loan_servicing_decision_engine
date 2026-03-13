@@ -62,8 +62,11 @@ test("evaluation returns a recommended scenario and deterministic ranking", () =
     result.scenarios[0].scenario.termExtensionYears > 0 || result.scenarios[0].scenario.rateReductionPercent > 0,
     true,
   );
-  assert.deepEqual(result.scenarios[0].paymentScheduleByLoan[0].servicingActions, ["extend 5 years", "rate -1%"]);
+  assert.deepEqual(result.scenarios[0].paymentScheduleByLoan[0].servicingActions, [
+    "reamortize 10 years",
+  ]);
   assert.equal(result.scenarios[0].scenario.writedownAmount, 0);
+  assert.equal(result.metadata.eligibility.overallEligible, true);
 });
 
 test("second preset recommends a writedown path", () => {
@@ -74,10 +77,11 @@ test("second preset recommends a writedown path", () => {
   assert.equal(result.scenarios[0].scenario.writedownAmount > 0, true);
   assert.equal(result.scenarios[0].scenario.writedownAmount <= config.scenarioControls.writedownCapAmount, true);
   assert.deepEqual(result.scenarios[0].paymentScheduleByLoan[0].servicingActions, [
-    "extend 8 years",
+    "reamortize 5 years",
     "rate -1%",
     "writedown 300000",
   ]);
+  assert.equal(result.metadata.eligibility.nonEssentialAssetsCanCureDelinquency, false);
 });
 
 test("third preset supports multi-loan and multi-collateral recommendations", () => {
@@ -87,7 +91,7 @@ test("third preset supports multi-loan and multi-collateral recommendations", ()
   assert.equal(result.scenarios[0].status, "valid and recommendable");
   assert.equal(result.scenarios[0].paymentScheduleByLoan.length, 2);
   assert.deepEqual(result.scenarios[0].paymentScheduleByLoan[0].servicingActions, [
-    "extend 8 years",
+    "reamortize 8 years",
     "rate -0.3%",
   ]);
   assert.deepEqual(result.scenarios[0].paymentScheduleByLoan[1].servicingActions, [
@@ -115,9 +119,11 @@ test("api exposes config and evaluation endpoints", async () => {
   assert.equal(configPayload.referenceData.loanTypes.some((item) => item.value === "operating"), true);
   assert.equal(typeof configPayload.policySummary.scoringWeights.feasibility, "number");
   assert.equal(configPayload.policySummary.scenarioControls.writedownCapAmount, 300000);
+  assert.equal(configPayload.policySummary.servicingRules.delinquencyDaysThreshold, 90);
 
   const evaluationResponse = await routeRequest("POST", "/api/evaluate", config.sampleCase, config);
   assert.equal(evaluationResponse.statusCode, 200);
   const evaluationPayload = evaluationResponse.payload;
   assert.ok(evaluationPayload.recommendedScenarioId);
+  assert.equal(evaluationPayload.metadata.eligibility.overallEligible, true);
 });

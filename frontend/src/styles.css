@@ -1,0 +1,11 @@
+@import "tailwindcss";
+
+/* Brand tokens are defined once here so Tailwind utilities and custom CSS can
+   reference the same A-STAR palette during the incremental migration. */
+@theme {
+  --color-brand-navy: #123d67;
+  --color-brand-blue: #0d5d96;
+  --color-brand-canvas: #dfe5eb;
+  --color-brand-panel: #f8fafc;
+  --color-brand-line: #ccd7e2;
+}

@@ -9,6 +9,7 @@ The core design is:
 ```text
 Inputs
 -> Policy Resolution
+-> Eligibility Gate Layer
 -> Scenario Generation
 -> Feasibility Calculation
 -> Government Protection Calculation
@@ -45,6 +46,8 @@ Inputs:
 
 Outputs:
 
+- servicing-path classification (`rescheduling` vs `reamortization`)
+- scenario constraint checks
 - recomputed payment schedule by loan
 - total annual recommended repayment
 - usable cash after reserve
@@ -84,6 +87,28 @@ Outputs:
 - ranking
 - recommended scenario
 - explanation text
+
+## Eligibility gate layer
+
+Before ranking, A-STAR now resolves a borrower-level eligibility context from
+case inputs and policy rules.
+
+Current gate checks:
+
+- `goodFaith`
+- `applicationComplete`
+- `completedApplicationDate` inside the configured servicing window relative to `noticeOfDelinquencyDate`
+- `daysPastDue >= 90` or `financiallyDistressed = true`
+- `distressCause` entered
+- `cropInsuranceViolation = false`
+- `nonMonetaryDefault = false`
+
+The engine also produces warnings for:
+
+- non-essential assets that appear sufficient to cure delinquency before writedown
+
+This context is returned in `metadata.eligibility` and copied into
+`scenario.phaseOutputs.eligibility`.
 
 ## Scenario generation
 
@@ -154,6 +179,20 @@ recommendedPayment = annuity(principalAfterWritedown, targetRate, newTerm)
 
 If a loan is marked with `servicingAction = N`, A-STAR keeps current terms and labels the action as `Maintain Current Terms`.
 
+The engine now also classifies the structural action by loan type:
+
+```text
+farm_ownership -> reamortization
+operating / emergency -> rescheduling
+```
+
+So the user-facing action label becomes:
+
+```text
+reamortize 5 years
+reschedule 3 years
+```
+
 ### 4. Cash flow margin
 
 ```text
@@ -168,6 +207,42 @@ recommendedRepayment = $41,219.71
 cashFlowMargin = ($46,000 - $41,219.71) / $41,219.71
 cashFlowMargin = 11.6% (shown as 12% after rounding)
 ```
+
+### 4a. Eligibility timing check
+
+Application timing is calculated as:
+
+```text
+completedApplicationDate - noticeOfDelinquencyDate
+```
+
+If the configured application window is `60 days`, then:
+
+```text
+notice = 2026-01-20
+application complete = 2026-03-18
+elapsed = 57 days
+result = inside servicing window
+```
+
+### 4b. Non-essential asset review
+
+The current writedown logic checks whether non-essential assets appear large
+enough to cure delinquency before writedown is considered:
+
+```text
+nonEssentialAssetLiquidationValue >= totalDelinquentDue
+```
+
+Example:
+
+```text
+nonEssentialAssetLiquidationValue = $15,000
+totalDelinquentDue = $22,000
+result = not enough to cure delinquency
+```
+
+So writedown remains available for further scenario testing.
 
 ### 5. Present value style calculation
 
@@ -218,68 +293,79 @@ $384,514.72 / $329,728 = 1.17
 
 Current sample recommendation:
 
-- scenario margin target selected by optimizer: `7%`
-- term extension: `8 years`
-- configured rate reduction: `1.00%`
-- actual FO-101 rate change shown to the user: `1.30%`
+- borrower is eligible for servicing
+- loan type is `farm_ownership`
+- remaining term is `30 years`
+- max term is `40 years`
+- limited-resource reduction is not allowed on this seed loan
 
-Why the displayed rate change is `1.30%`:
+Recommended loan outcome:
 
-`FO-101` starts at `5.25%`, but the engine first caps it to the lower regular/reference rate before applying the configured reduction.
-
-```text
-starting rate = 5.25%
-reference regular rate = 4.95%
-configured reduction = 1.00%
-target rate = 3.95%
-actual change = 5.25% - 3.95% = 1.30%
-```
-
-Recommended loan outcomes:
-
-- `FO-101`
-  Current: `18 years`, `5.25%`, `$26,940`
-  Recommended: `26 years`, `3.95%`, `$19,371.26`
-  Actions: `Extend 8 Years`, `Rate -1.3%`
-- `OL-210`
-  Current: `6 years`, `6.10%`, `$20,370`
-  Recommended: `6 years`, `4.80%`, `$19,654.22`
-  Actions: `Rate -1.3%`
+- `FO-301`
+  Current: `30 years`, `3.25%`, `$94,100`
+  Recommended: `40 years`, `3.25%`, `$78,906.13`
+  Actions: `Reamortize 10 Years`
 
 Portfolio-level result:
 
 ```text
-current annual repayment = $47,310
-adjusted operating income = $46,000
-reserved cash at 7% = $3,220
-usable cash = $42,780
-recommended annual repayment = $39,025.48
-improvement = $8,284.52
-cash retained after payment = $3,754.52
+current annual repayment = $94,100
+adjusted operating income = $80,000
+reserved cash at 0% = $0
+usable cash = $80,000
+recommended annual repayment = $78,906.13
+cash retained after payment = $1,093.87
 ```
 
-Why the second loan gets a different recommendation:
+Why the action is `reamortize` instead of `extend`:
 
 ```text
-OL-210 remaining term = 6 years
-OL-210 max term = 6 years
-term extension available = 0 years
+loanType = farm_ownership
+servicingPath = reamortization
+newTerm = min(30 + 10, 40) = 40 years
 ```
 
-So for `OL-210`, the engine cannot extend the term further. It can still reduce the rate:
+So the user sees a policy-specific path label rather than a generic term-change label.
+
+## Worked writedown recommendation
+
+The current writedown preset demonstrates both the eligibility gate and the
+recovery test.
+
+Eligibility values:
 
 ```text
-current rate = 6.10%
-reference regular rate = 5.80%
-configured reduction = 1.00%
-target rate = 4.80%
-actual change = 6.10% - 4.80% = 1.30%
+daysPastDue = 128
+application timing = 57 days
+goodFaith = true
+nonEssentialAssetLiquidationValue = $15,000
+totalDelinquentDue = $22,000
 ```
 
-That is why the same scenario produces:
+That means:
 
-- `FO-101`: `Extend 8 Years` and `Rate -1.3%`
-- `OL-210`: `Rate -1.3%` only
+```text
+servicing eligibility = passed
+non-essential asset review = warning only
+```
+
+Recommended loan outcome:
+
+- `FO-401`
+  Current: `27 years`, `3.10%`, `$104,500`
+  Recommended: `32 years`, `2.00%`, `$84,303.03`
+  Actions: `Reamortize 5 Years`, `Rate -1%`, `Writedown $300,000`
+
+Why it becomes a writedown case:
+
+```text
+adjusted operating income = $147,000 - $60,000 = $87,000
+restructure-only payment remains above usable cash
+writedown-capped scenario lowers payment to $84,303.03
+```
+
+So under the current cap and rule set, writedown is needed to create a feasible
+plan.
 
 ## UI calculation detail table
 
@@ -299,15 +385,18 @@ The first table shows:
 - projected value
 - net recovery value
 - coverage ratio
+- eligibility status
+- application timing
+- total delinquent due
 
 For the current sample, the key rows are:
 
 ```text
-Adjusted Operating Income = $68,000 - $22,000 = $46,000
-Debt Margin Reserve = 7% x $46,000 = $3,220
-Usable Cash For Debt Service = $46,000 - $3,220 = $42,780
-Annual Payment Reduction = $47,310 - $39,025.48 = $8,284.52
-Coverage Ratio = $379,390.84 / $329,728 = 1.15x
+Adjusted Operating Income = $110,000 - $30,000 = $80,000
+Debt Margin Reserve = 0% x $80,000 = $0
+Usable Cash For Debt Service = $80,000 - $0 = $80,000
+Annual Payment Reduction = $94,100 - $78,906.13 = $15,193.87
+Eligibility Status = Passed
 ```
 
 ### Loan-level table

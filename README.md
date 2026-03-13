@@ -48,6 +48,18 @@ npm run build
 
 This builds the frontend production bundle into `dist/`.
 
+## Tailwind CSS
+
+Tailwind CSS is installed and wired into Vite.
+
+Key files:
+
+- [vite.config.js](/Users/santosh.tibrewala/Work/loan_servicing_decision_engine/vite.config.js): includes the Tailwind Vite plugin
+- [frontend/src/main.js](/Users/santosh.tibrewala/Work/loan_servicing_decision_engine/frontend/src/main.js): imports the global stylesheet
+- [frontend/src/styles.css](/Users/santosh.tibrewala/Work/loan_servicing_decision_engine/frontend/src/styles.css): loads Tailwind and defines a small theme
+
+You can now use Tailwind classes directly in Vue templates while keeping the existing scoped CSS during migration.
+
 ## Test
 
 ```bash
@@ -64,31 +76,3 @@ npm test
 - [frontend/src/App.vue](/Users/santosh.tibrewala/Work/loan_servicing_decision_engine/frontend/src/App.vue): main UI
 - [FUNCTIONAL_OVERVIEW.md](/Users/santosh.tibrewala/Work/loan_servicing_decision_engine/FUNCTIONAL_OVERVIEW.md): business explanation
 - [TECHNICAL_OVERVIEW.md](/Users/santosh.tibrewala/Work/loan_servicing_decision_engine/TECHNICAL_OVERVIEW.md): formulas and engine behavior
-
-## Create a git repository
-
-If you are starting from a plain folder:
-
-```bash
-git init
-git add .
-git commit -m "Initial commit"
-```
-
-If you want to connect it to GitHub:
-
-```bash
-git branch -M main
-git remote add origin <your-repo-url>
-git push -u origin main
-```
-
-## Suggested first commit flow
-
-```bash
-npm install
-npm test
-npm run build
-git add .
-git commit -m "Set up A-STAR loan servicing decision engine"
-```

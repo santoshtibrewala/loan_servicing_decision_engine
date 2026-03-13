@@ -39,6 +39,7 @@ async function routeRequest(method, url, body, activeConfig = config) {
           collateralRecoveryAssumptions: activeConfig.policy.collateralRecoveryAssumptions,
           scenarioControls: activeConfig.scenarioControls,
           scoringWeights: activeConfig.scoringWeights,
+          servicingRules: activeConfig.policy.servicingRules,
           maxTerms: activeConfig.policy.maxTerms,
           loanLimits: activeConfig.policy.loanLimits,
           countyNetRecoveryDefaults: activeConfig.policy.countyNetRecoveryDefaults,

@@ -42,7 +42,8 @@ The lender can also adjust the debt margin reserve. This is the amount of cash t
 
 A-STAR can test restructuring paths such as:
 
-- extending the loan term
+- rescheduling operating-style debt
+- reamortizing real-estate-style debt
 - reducing the interest rate
 - deferring payments
 - consolidating loans
@@ -50,6 +51,27 @@ A-STAR can test restructuring paths such as:
 - liquidating a loan
 
 The engine first tries to find a valid restructure without writedown. If it can do that, writedown versus net recovery analysis is not needed for the recommended path. If it cannot, the engine moves into writedown or liquidation analysis.
+
+## USDA-style gate checks now included
+
+Before a scenario can rank well, A-STAR now checks a first layer of servicing eligibility:
+
+- good faith
+- application completeness
+- timely application relative to notice of delinquency
+- delinquency or financial distress
+- distress cause entered
+- crop insurance violation flag
+- non-monetary default flag
+
+It also applies path-specific constraints:
+
+- `Deferral` requires temporary hardship and cannot exceed the configured maximum
+- `Interest rate reduction` is limited to loans marked as limited-resource eligible
+- `Consolidation` is blocked for excluded security types and can be blocked by lien-position mismatch or referral-to-counsel
+- `Writedown` is flagged for review if non-essential assets appear sufficient to cure delinquency first
+
+These checks are visible in the recommendation flags, the calculation worksheet, and the policy snapshot.
 
 ## How the recommendation is chosen
 
@@ -98,17 +120,17 @@ A-STAR starts at the selected debt margin and steps downward until it either fin
 
 In the current sample:
 
-- `FO-101` is restructured through term extension and rate reduction
-- `OL-210` is restructured through rate reduction only
+- the borrower passes the servicing eligibility gate
+- `FO-301` is treated as a real-estate-style loan
+- the recommended path is reamortization rather than a generic term extension
 
 Recommended path:
 
-- `FO-101: Extend 8 Years, Rate -1.3%`
-- `OL-210: Rate -1.3%`
+- `FO-301: Reamortize 10 Years`
 
-That means the engine found that the two loans should not be treated the same way. The farm ownership loan benefits from both term extension and rate reduction, while the operating loan only benefits from rate reduction because it is already at its term limit.
+That means the engine found that a longer real-estate amortization alone was enough to restore feasibility, so no limited-resource rate relief or writedown was needed.
 
-## Why the two loans can get different recommendations
+## Why different loan types can get different recommendations
 
 A-STAR evaluates each loan against its own:
 
@@ -117,14 +139,41 @@ A-STAR evaluates each loan against its own:
 - maximum term
 - servicing eligibility
 - loan type policy constraints
+- servicing path type
 
-In the current sample:
+The engine now distinguishes:
 
-- `FO-101` can still be extended, so it gets both a term change and a rate change
-- `OL-210` is already at its maximum term of `6 years`, so it cannot be extended further
-- the engine can still reduce the rate on `OL-210`, so that becomes the recommended action
+- `Rescheduling` for operating-style or non-real-estate loans
+- `Reamortization` for real-estate-style loans such as farm ownership
 
-That produces two different recommendations inside the same case.
+So two loans in the same case may still receive different actions because they are not governed by the same servicing path.
+
+## Multi-loan recommendation example
+
+The multi-loan preset still shows different actions inside one case:
+
+- `FO-101: Reamortize 8 Years, Rate -0.3%`
+- `OL-210: Rate -0.3%`
+
+This happens because the farm ownership loan still has reamortization room, while the operating loan does not.
+
+## Writedown case example
+
+The writedown preset now demonstrates an important USDA-style distinction:
+
+- the borrower is still eligible for servicing overall
+- non-essential assets are present, but not enough to fully cure delinquency
+- because of that, writedown can still be considered after other options fail
+
+Current writedown preset recommendation:
+
+- `FO-401: Reamortize 5 Years, Rate -1%, Writedown $300,000`
+
+This shows the current engine behavior:
+
+1. try restructure first,
+2. only move into writedown when restructure alone is not feasible,
+3. compare writedown against recovery logic.
 
 ## Collateral and recovery example
 
@@ -159,6 +208,7 @@ The most important parts of the screen are:
 - calculation detail worksheet: a lender-readable table showing the formulas, basis, and results used for cash capacity, payments, and government protection
 - printable lender worksheet: the selected calculation detail can be exported to a print-friendly worksheet for case review or discussion
 - policy snapshot: scenario controls, scoring weights, and recovery assumptions
+- USDA-style eligibility and servicing rules: delinquency threshold, application window, deferral cap, and rate-reduction gate
 
 ## What this tool is not
 

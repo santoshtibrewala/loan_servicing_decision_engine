@@ -9,7 +9,26 @@ import {
   watch,
 } from 'vue';
 import headerLogo from '../logo.svg';
+import BorrowerCaseSection from './components/BorrowerCaseSection.vue';
+import CalculationWorksheetCard from './components/CalculationWorksheetCard.vue';
+import CashFlowSection from './components/CashFlowSection.vue';
+import CollateralSection from './components/CollateralSection.vue';
+import CurrentVsRecommendedSection from './components/CurrentVsRecommendedSection.vue';
+import DecisionOverview from './components/DecisionOverview.vue';
+import ExistingLoansSection from './components/ExistingLoansSection.vue';
+import LiensSection from './components/LiensSection.vue';
+import OutcomeGraphCard from './components/OutcomeGraphCard.vue';
+import PipelineCountsCard from './components/PipelineCountsCard.vue';
+import PolicySnapshotSection from './components/PolicySnapshotSection.vue';
+import PreDecisionBriefing from './components/PreDecisionBriefing.vue';
+import RankedAlternativesPanel from './components/RankedAlternativesPanel.vue';
+import RecommendedActionsPanel from './components/RecommendedActionsPanel.vue';
+import ScenarioComparisonGrid from './components/ScenarioComparisonGrid.vue';
+import { useFormatters } from './composables/useFormatters';
+import { useWorksheetExport } from './composables/useWorksheetExport';
 
+// Clone reactive form state into plain JSON-safe objects before sending it to
+// the API or replacing nested sections from a preset payload.
 function clone(value) {
   const rawValue = toRaw(value);
   try {
@@ -23,6 +42,26 @@ function serializeModel() {
   return JSON.parse(JSON.stringify(model));
 }
 
+// Shared display helpers are centralized so the cards, tables, and form
+// summaries render amounts and labels consistently across the page.
+const {
+  currency,
+  currencyCompact,
+  percent,
+  ratePercent,
+  formatDate,
+  yearsLabel,
+  lookupLabel,
+  toDisplayText,
+  formatLabel,
+  formatActionLabel,
+  formatActions,
+} = useFormatters();
+// Worksheet printing is kept in a composable so App.vue only prepares data for
+// export instead of owning the print-window markup.
+const { exportWorksheet: printWorksheet } = useWorksheetExport();
+
+// Top-level async, UI, and result state for the servicing workspace.
 const loading = ref(true);
 const submitting = ref(false);
 const error = ref('');
@@ -59,6 +98,8 @@ const model = reactive({
   },
 });
 
+// Sidebar navigation drives the expand-and-scroll behavior for the accordion
+// sections below the decision area.
 const navigationItems = [
   {
     key: 'decision',
@@ -97,6 +138,8 @@ const navigationItems = [
   },
 ];
 
+// The selected scenario is either the user-picked alternative or the top
+// recommended path when evaluation first returns.
 const selectedScenario = computed(() => {
   if (!results.value) {
     return null;
@@ -111,9 +154,13 @@ const selectedScenario = computed(() => {
 });
 
 const recommendation = computed(() => results.value?.scenarios?.[0] ?? null);
+// Config-backed dropdowns are derived from the `/api/config` payload.
 const stateOptions = computed(() => Object.entries(locationOptions.value));
 const borrowerTypeOptions = computed(
   () => referenceData.value.borrowerTypes ?? [],
+);
+const distressCauseOptions = computed(
+  () => referenceData.value.distressCauses ?? [],
 );
 const loanTypeOptions = computed(() => referenceData.value.loanTypes ?? []);
 const collateralTypeOptions = computed(
@@ -126,6 +173,8 @@ const countyOptions = computed(() => {
   }
   return locationOptions.value[activeState].counties ?? [];
 });
+// Portfolio-level summary values feed the pre-decision briefing and the
+// selected-scenario comparison views.
 const totalCollateralValue = computed(() =>
   model.collateral.reduce(
     (total, item) => total + Number(item.marketValue ?? 0),
@@ -166,6 +215,8 @@ const proposedTermsSummary = computed(() => {
   });
   return lines.length > 0 ? lines : ['No Structural Change Proposed'];
 });
+// The pre-decision cards are assembled as data so the section can stay
+// presentational and easy to reorder.
 const briefingSections = computed(() => [
   {
     title: 'Borrower profile',
@@ -317,6 +368,8 @@ const briefingSections = computed(() => [
       : [{ label: 'Status', value: 'Available after evaluation.' }],
   },
 ]);
+// Loan comparison rows normalize current and proposed terms into a single table
+// shape that can be reused by both the UI table and the printable worksheet.
 const loanComparisonRows = computed(() => {
   if (!selectedScenario.value) {
     return [];
@@ -351,6 +404,9 @@ const recommendedLoanCards = computed(() =>
       row.recommendedFirstYearPayment - row.currentFirstYearPayment,
   })),
 );
+// Calculation rows deliberately expose both formulas and results so the loan
+// officer can audit how the selected scenario score and affordability were
+// derived.
 const calculationSummaryRows = computed(() => {
   if (!selectedScenario.value || !results.value) {
     return [];
@@ -380,6 +436,7 @@ const calculationSummaryRows = computed(() => {
   const netRecoveryLoss = Math.max(totalOutstanding - netRecoveryValue, 0);
   const scoringWeights = policySummary.value.scoringWeights ?? {};
   const scoreComponents = scenario.scoreComponents ?? {};
+  const eligibility = results.value.metadata?.eligibility ?? {};
 
   const rows = [
     {
@@ -447,6 +504,27 @@ const calculationSummaryRows = computed(() => {
       metric: 'Coverage ratio',
       formula: `${currency(scenario.governmentProtectionMetrics.projectedValue)} / ${currency(netRecoveryValue)}`,
       value: `${scenario.governmentProtectionMetrics.coverageRatio.toFixed(2)}x`,
+    },
+    {
+      category: 'Eligibility gate',
+      metric: 'Borrower eligibility status',
+      formula: 'Primary servicing gate checks',
+      value: eligibility.overallEligible ? 'Passed' : 'Review required',
+    },
+    {
+      category: 'Eligibility gate',
+      metric: 'Application timing',
+      formula: 'Completed Application Date - Notice Of Delinquency Date',
+      value:
+        eligibility.applicationWindowDays == null
+          ? '--'
+          : `${eligibility.applicationWindowDays} days`,
+    },
+    {
+      category: 'Eligibility gate',
+      metric: 'Total delinquent due',
+      formula: 'Sum Of Delinquent Amount Due Across Loans',
+      value: currency(eligibility.totalDelinquent ?? 0),
     },
   ];
 
@@ -517,6 +595,8 @@ const calculationSummaryRows = computed(() => {
 
   return rows;
 });
+// Worksheet loan rows use already-formatted display values so printed output
+// matches the on-screen recommendation view.
 const loanCalculationRows = computed(() =>
   recommendedLoanCards.value.map((loan) => ({
     loanId: loan.loanId,
@@ -533,10 +613,13 @@ const loanCalculationRows = computed(() =>
     actions: formatActions(loan.actions) || 'No Change',
   })),
 );
+// Policy cards surface a lender-readable slice of the config instead of dumping
+// raw JSON into the UI.
 const policyCards = computed(() => {
   const controls = policySummary.value.scenarioControls ?? {};
   const scoring = policySummary.value.scoringWeights ?? {};
   const recovery = policySummary.value.collateralRecoveryAssumptions ?? {};
+  const rules = policySummary.value.servicingRules ?? {};
   return [
     {
       title: 'Scenario controls',
@@ -564,12 +647,33 @@ const policyCards = computed(() => {
       ],
     },
     {
-      title: 'Scoring weights',
-      rows: Object.entries(scoring).map(([key, value]) => ({
-        label: formatLabel(key),
-        value: percent(value),
-      })),
+      title: 'Eligibility and servicing rules',
+      rows: [
+        {
+          label: 'Delinquency threshold',
+          value: `${rules.delinquencyDaysThreshold ?? '--'} days`,
+        },
+        {
+          label: 'Application window',
+          value: `${rules.applicationWindowDays ?? '--'} days`,
+        },
+        {
+          label: 'Max deferral',
+          value:
+            rules.maxDeferralYears == null
+              ? '--'
+              : yearsLabel(rules.maxDeferralYears),
+        },
+        {
+          label: 'Rate reduction gate',
+          value:
+            rules.requireLimitedResourceEligibilityForRateReduction === false
+              ? 'Open'
+              : 'Limited Resource Eligible Only',
+        },
+      ],
     },
+
     {
       title: 'Collateral recovery assumptions',
       rows: ['real_estate', 'mixed', 'chattel'].map((key) => ({
@@ -580,6 +684,42 @@ const policyCards = computed(() => {
   ];
 });
 
+const scoringSummaryRows = computed(() => {
+  const scoring = policySummary.value.scoringWeights ?? {};
+  return [
+    {
+      label: 'Feasibility',
+      value: percent(scoring.feasibility ?? 0),
+    },
+    {
+      label: 'Gov. Protection',
+      value: percent(scoring.governmentProtection ?? 0),
+    },
+    {
+      label: 'Concessions',
+      value: percent(scoring.concessionMinimization ?? 0),
+    },
+    {
+      label: 'Margin',
+      value: percent(scoring.marginAttainment ?? 0),
+    },
+    {
+      label: 'Simplicity',
+      value: percent(scoring.simplicity ?? 0),
+    },
+  ];
+});
+
+const scoringMechanism = computed(() => [
+  'Feasibility scores whether usable cash covers the proposed annual payment.',
+  'Government protection scores the projected value against net recovery value and coverage floor.',
+  'Concession minimization penalizes larger writedowns, deeper rate cuts, deferral, and other relief.',
+  'Margin attainment rewards scenarios that preserve the target reserve while remaining feasible.',
+  'Simplicity breaks ties in favor of fewer actions and less structural complexity.',
+]);
+
+// Pipeline counts explain how many candidate paths were generated and how many
+// survived the recommendation screens.
 const pipelineCounts = computed(() => {
   const counts = results.value?.metadata?.pipelineCounts;
   if (counts) {
@@ -593,6 +733,8 @@ const pipelineCounts = computed(() => {
   return [];
 });
 
+// The current baseline row gives lenders a no-change benchmark before they look
+// at ranked restructuring alternatives.
 const baselineScenarioRow = computed(() => ({
   id: 'current-baseline',
   label: 'Current baseline',
@@ -603,6 +745,15 @@ const baselineScenarioRow = computed(() => ({
     recommendation.value?.governmentProtectionMetrics?.coverageRatio ?? 0,
 }));
 
+const rankedAlternativeRows = computed(() =>
+  (results.value?.scenarios ?? []).map((scenario) => ({
+    ...scenario,
+    flags: scenarioPolicyFlags(scenario),
+  })),
+);
+
+// Comparison cards intentionally choose materially different scenarios rather
+// than simply showing the next three rows in rank order.
 const topScenarioComparisons = computed(() => {
   if (!results.value?.scenarios?.length) {
     return [];
@@ -685,6 +836,8 @@ const topScenarioComparisons = computed(() => {
   });
 });
 
+// Outcome bars show the selected scenario across the main affordability and
+// government-protection measures used throughout the engine.
 const outcomeSeries = computed(() => {
   if (!recommendation.value || !results.value) {
     return [];
@@ -768,6 +921,8 @@ const outcomeSeries = computed(() => {
   ];
 });
 
+// Apply a preset by fully replacing the editable form model and clearing any
+// prior evaluation output that no longer matches the inputs.
 function assignModel(source) {
   model.case = clone(source.case);
   model.cashFlow = clone(source.cashFlow);
@@ -787,6 +942,8 @@ function applyPreset(presetId) {
   assignModel(preset.data);
 }
 
+// Pull the editable sample case, location dropdowns, and policy summaries from
+// the lightweight backend config endpoint.
 async function loadDefaults() {
   loading.value = true;
   error.value = '';
@@ -818,6 +975,8 @@ async function loadDefaults() {
   }
 }
 
+// Send the normalized case payload to the backend and hydrate the ranked
+// scenario set used across the recommendation panels.
 async function runEvaluation() {
   submitting.value = true;
   error.value = '';
@@ -845,6 +1004,7 @@ async function runEvaluation() {
   }
 }
 
+// Accordion and sidebar navigation helpers.
 function toggleSection(sectionKey) {
   openSections[sectionKey] = !openSections[sectionKey];
 }
@@ -862,87 +1022,30 @@ async function navigateToSection(sectionKey) {
   });
 }
 
-function currency(value) {
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    maximumFractionDigits: 0,
-  }).format(Number(value ?? 0));
-}
-
-function currencyCompact(value) {
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    notation: 'compact',
-    maximumFractionDigits: 1,
-  }).format(Number(value ?? 0));
-}
-
-function percent(value) {
-  return `${(Number(value ?? 0) * 100).toFixed(1)}%`;
-}
-
-function ratePercent(value) {
-  return `${(Number(value ?? 0) * 100).toFixed(2)}%`;
-}
-
-function formatDate(value) {
-  if (!value) {
-    return '--';
-  }
-  return new Intl.DateTimeFormat('en-US', {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-  }).format(new Date(value));
-}
-
-function yearsLabel(value) {
-  return `${Number(value ?? 0)} ${Number(value ?? 0) === 1 ? 'year' : 'years'}`;
-}
-
-function lookupLabel(options, value) {
-  return (
-    options.find((option) => option.value === value)?.label ?? value ?? '--'
-  );
-}
-
-function toDisplayText(value) {
-  return String(value ?? '')
-    .split(' ')
-    .filter(Boolean)
-    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(' ');
-}
-
-function formatLabel(value) {
-  return toDisplayText(
-    String(value ?? '')
-      .replace(/([a-z])([A-Z])/g, '$1 $2')
-      .replace(/_/g, ' '),
-  );
-}
-
-function formatActionLabel(action) {
-  const rawAction = String(action ?? '').trim();
-  const amountMatch = rawAction.match(
-    /^(writedown|support|conservation cancellation)\s+(-?\d+(?:\.\d+)?)$/i,
-  );
-  if (amountMatch) {
-    return `${toDisplayText(amountMatch[1])} ${currency(Number(amountMatch[2]))}`;
-  }
-  return toDisplayText(rawAction);
-}
-
-function formatActions(actions) {
-  return (actions ?? []).map((action) => formatActionLabel(action)).join(', ');
-}
-
+// Flags are intentionally simple lender-facing warnings rather than raw engine
+// internals so they can be shown directly on comparison cards.
 function scenarioPolicyFlags(scenario) {
   const flags = [];
+  if (
+    scenario.phaseOutputs?.eligibility?.overallEligible === false ||
+    (scenario.phaseOutputs?.eligibility?.gateReasons?.length ?? 0) > 0
+  ) {
+    flags.push('Eligibility Gate Failed');
+  }
   if (scenario.governmentProtectionMetrics?.writedownVsNrvRequired) {
     flags.push('Writedown Required');
+  }
+  if (
+    scenario.phaseOutputs?.constraints?.deferralAllowed === false &&
+    scenario.scenario?.deferralYears > 0
+  ) {
+    flags.push('Deferral Not Allowed');
+  }
+  if (
+    scenario.phaseOutputs?.constraints?.consolidationAllowed === false &&
+    scenario.scenario?.consolidateLoans
+  ) {
+    flags.push('Consolidation Not Allowed');
   }
   if (scenario.governmentProtectionMetrics?.passesCoverageFloor === false) {
     flags.push('Coverage Floor Failed');
@@ -959,15 +1062,7 @@ function scenarioPolicyFlags(scenario) {
   return flags;
 }
 
-function escapeHtml(value) {
-  return String(value ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
-
+// Graph helpers convert absolute values into bounded bar widths.
 function barWidth(value, max = 160) {
   return `${Math.max(8, Math.min(max, value))}px`;
 }
@@ -979,174 +1074,31 @@ function graphPercent(value, max) {
   return `${Math.max(8, Math.min(100, (value / max) * 100))}%`;
 }
 
-function buildWorksheetMarkup() {
-  if (!selectedScenario.value) {
-    return '';
-  }
-
-  const summaryRows = calculationSummaryRows.value
-    .map(
-      (row) => `
-        <tr>
-          <td>${escapeHtml(row.category)}</td>
-          <td><strong>${escapeHtml(row.metric)}</strong></td>
-          <td>${escapeHtml(row.formula)}</td>
-          <td><strong>${escapeHtml(row.value)}</strong></td>
-        </tr>`,
-    )
-    .join('');
-
-  const loanRows = loanCalculationRows.value
-    .map(
-      (row) => `
-        <tr>
-          <td><strong>${escapeHtml(row.loanId)}</strong></td>
-          <td>${escapeHtml(row.currentRate)}</td>
-          <td>${escapeHtml(row.proposedRate)}</td>
-          <td>${escapeHtml(row.currentTerm)}</td>
-          <td>${escapeHtml(row.proposedTerm)}</td>
-          <td>${escapeHtml(row.currentPayment)}</td>
-          <td>${escapeHtml(row.proposedPayment)}</td>
-          <td>${escapeHtml(row.paymentChange)}</td>
-          <td>${escapeHtml(row.actions)}</td>
-        </tr>`,
-    )
-    .join('');
-
-  return `<!doctype html>
-  <html lang="en">
-    <head>
-      <meta charset="UTF-8" />
-      <title>${escapeHtml(appMeta.value.title || 'A-STAR')} Worksheet</title>
-      <style>
-        body {
-          font-family: Arial, sans-serif;
-          margin: 32px;
-          color: #17334d;
-        }
-        h1, h2, h3, p {
-          margin: 0 0 12px;
-        }
-        .meta-grid {
-          display: grid;
-          grid-template-columns: repeat(4, minmax(0, 1fr));
-          gap: 12px;
-          margin: 18px 0 26px;
-        }
-        .meta-card {
-          border: 1px solid #ccd7e2;
-          border-radius: 12px;
-          padding: 12px;
-          background: #f8fafc;
-        }
-        .meta-card span {
-          display: block;
-          font-size: 12px;
-          color: #5f7387;
-          margin-bottom: 6px;
-        }
-        table {
-          width: 100%;
-          border-collapse: collapse;
-          margin-bottom: 24px;
-        }
-        th, td {
-          border: 1px solid #d7e1ea;
-          padding: 10px 12px;
-          text-align: left;
-          vertical-align: top;
-          font-size: 13px;
-        }
-        th {
-          background: #edf6fd;
-          color: #123b60;
-        }
-        .section-title {
-          margin: 24px 0 12px;
-        }
-        @media print {
-          body {
-            margin: 12px;
-          }
-        }
-      </style>
-    </head>
-    <body>
-      <p>${escapeHtml(appMeta.value.description || 'Allocore Servicing Term Analysis and Recommendation')}</p>
-      <h2 class="section-title">Lender Worksheet</h2>
-      <div class="meta-grid">
-        <div class="meta-card">
-          <span>Borrower ID</span>
-          <strong>${escapeHtml(model.case.borrowerId || '--')}</strong>
-        </div>
-        <div class="meta-card">
-          <span>State / County</span>
-          <strong>${escapeHtml(`${model.case.state || '--'} / ${model.case.county || '--'}`)}</strong>
-        </div>
-        <div class="meta-card">
-          <span>Restructuring Date</span>
-          <strong>${escapeHtml(formatDate(model.case.proposedServicingDate))}</strong>
-        </div>
-        <div class="meta-card">
-          <span>Selected Scenario</span>
-          <strong>${escapeHtml(`${selectedScenario.value.rank ? `#${selectedScenario.value.rank} ` : ''}${selectedScenario.value.outcomeCode}`)}</strong>
-        </div>
-      </div>
-      <h3 class="section-title">Portfolio Calculation Detail</h3>
-      <table>
-        <thead>
-          <tr>
-            <th>Category</th>
-            <th>Metric</th>
-            <th>Formula / Basis</th>
-            <th>Result</th>
-          </tr>
-        </thead>
-        <tbody>${summaryRows}</tbody>
-      </table>
-      <h3 class="section-title">Loan Calculation Detail</h3>
-      <table>
-        <thead>
-          <tr>
-            <th>Loan</th>
-
-            <th>Current Rate</th>
-            <th>Proposed Rate</th>
-            <th>Current Term</th>
-            <th>Proposed Term</th>
-            <th>Current Payment</th>
-            <th>Proposed Payment</th>
-            <th>Payment Reduction</th>
-            <th>Actions</th>
-          </tr>
-        </thead>
-        <tbody>${loanRows}</tbody>
-      </table>
-    </body>
-  </html>`;
-}
-
 function exportWorksheet() {
   if (!selectedScenario.value) {
     return;
   }
-  const printWindow = window.open(
-    '',
-    '_blank',
-    'noopener,noreferrer,width=1200,height=900',
-  );
-  if (!printWindow) {
+  try {
+    printWorksheet({
+      appMeta: appMeta.value,
+      caseData: model.case,
+      selectedScenario: selectedScenario.value,
+      calculationSummaryRows: calculationSummaryRows.value,
+      loanCalculationRows: loanCalculationRows.value,
+      scoringSummaryRows: scoringSummaryRows.value,
+      scoringMechanism: scoringMechanism.value,
+      formatDate,
+    });
+  } catch (worksheetError) {
     error.value =
-      'Unable to open printable worksheet. Please allow pop-ups and try again.';
-    return;
+      worksheetError instanceof Error
+        ? worksheetError.message
+        : 'Unable to export worksheet.';
   }
-  printWindow.document.open();
-  printWindow.document.write(buildWorksheetMarkup());
-  printWindow.document.close();
-  printWindow.focus();
-  printWindow.print();
 }
 
+// Editable multi-record sections use local helpers so the page can stay
+// database-free while still supporting add/remove interactions.
 function addExistingLoan() {
   model.existingLoans.push({
     loanId: `LN-${model.existingLoans.length + 1}`,
@@ -1217,6 +1169,7 @@ onMounted(() => {
   loadDefaults();
 });
 
+// Keep county selection valid when the state dropdown changes.
 watch(
   () => model.case.state,
   (nextState) => {
@@ -1229,9 +1182,13 @@ watch(
 </script>
 
 <template>
-  <div class="workspace">
-    <header class="topbar">
-      <div class="topbar-copy">
+  <div class="min-h-screen bg-brand-canvas workspace">
+    <!-- Header keeps branding and the primary evaluation action visible without
+         repeating controls inside the page body. -->
+    <header
+      class="flex min-h-[74px] items-center justify-between gap-6 border-b border-[#c8d3df] bg-[#f8fafc] px-7 topbar"
+    >
+      <div class="flex items-center gap-[14px] topbar-copy">
         <img :src="headerLogo" alt="Application logo" class="topbar-logo" />
       </div>
       <div>
@@ -1245,9 +1202,39 @@ watch(
       </div>
     </header>
 
-    <div class="workspace-shell">
-      <aside class="sidebar">
-        <div class="sidebar-card">
+    <div
+      class="grid min-h-[calc(100vh-108px)] grid-cols-[295px_minmax(0,1fr)] workspace-shell max-[1260px]:grid-cols-1"
+    >
+      <!-- Left rail is navigation plus a compact case status summary. The
+           preset selector lives here so lenders can switch seeded examples
+           without opening the borrower form first. -->
+      <aside
+        class="bg-[linear-gradient(180deg,#033a67,#022c50_100%)] text-[#f4f8fb] sidebar"
+      >
+        <div
+          class="m-5 rounded-2xl bg-[rgba(255,255,255,0.08)] p-5 sidebar-card"
+        >
+          <label class="mb-4 grid gap-1.5 font-semibold text-[#d0e3f2]">
+            <span
+              class="text-[0.8rem] uppercase tracking-[0.08em] text-[#b9d7ec]"
+            >
+              Case preset
+            </span>
+            <select
+              class="w-full rounded-[10px] border border-[rgba(185,215,236,0.45)] bg-[rgba(255,255,255,0.14)] px-3 py-2 text-[#f4f8fb] outline-none"
+              :value="currentPresetId"
+              @change="applyPreset($event.target.value)"
+            >
+              <option
+                v-for="preset in casePresets"
+                :key="preset.id"
+                :value="preset.id"
+                class="text-[#17334d]"
+              >
+                {{ preset.label }}
+              </option>
+            </select>
+          </label>
           <p class="sidebar-case">{{ model.case.borrowerId || 'Case' }}</p>
           <strong>{{
             recommendation ? 'Recommendation ready' : 'In Progress'
@@ -1258,7 +1245,7 @@ watch(
           >
         </div>
 
-        <div class="sidebar-nav">
+        <div class="grid sidebar-nav">
           <button
             v-for="item in navigationItems"
             :key="item.key"
@@ -1274,7 +1261,9 @@ watch(
           </button>
         </div>
 
-        <div class="sidebar-note">
+        <div
+          class="m-5 rounded-2xl bg-[rgba(255,255,255,0.08)] p-5 sidebar-note"
+        >
           <span>Margin search</span>
           <strong
             >{{ scenarioControls.marginStartPercent ?? 10 }}% to
@@ -1285,1110 +1274,227 @@ watch(
             capped</span
           >
         </div>
+
+        <div
+          class="m-5 rounded-2xl bg-[rgba(255,255,255,0.08)] p-5 sidebar-note"
+        >
+          <span>Scoring model</span>
+          <strong>Weighted servicing score</strong>
+          <div class="mt-3 grid gap-2">
+            <div
+              v-for="row in scoringSummaryRows"
+              :key="row.label"
+              class="flex items-center justify-between gap-3 text-[0.84rem]"
+            >
+              <span class="text-[#d0e3f2]">{{ row.label }}</span>
+              <strong class="!m-0 text-[0.9rem] text-white">{{
+                row.value
+              }}</strong>
+            </div>
+          </div>
+        </div>
       </aside>
 
-      <main class="content-area">
+      <main
+        class="px-7 pb-12 pt-8 content-area max-[920px]:px-3.5 max-[920px]:pb-7 max-[920px]:pt-[18px]"
+      >
         <p v-if="error" class="error-banner">{{ error }}</p>
         <p v-if="loading" class="loading-copy">Loading case...</p>
 
         <template v-else>
-          <div class="prelude-header">
+          <!-- Prelude title sits above the case briefing and frames the page as
+               the A-STAR decision workspace. -->
+          <div class="mb-3 prelude-header">
             <span class="page-heading"
-              >Allocore - Servicing Term Analysis and Recommendation
-              Engine</span
+              >Servicing Term Analysis and Recommendation Engine</span
             >
           </div>
-          <section class="briefing-panel chart-panel">
-            <button
-              class="accordion-header briefing-header"
-              @click="toggleSection('briefing')"
+
+          <!-- Pre-decision briefing shows the normalized input story before the
+               lender reviews any engine output. -->
+          <PreDecisionBriefing
+            :sections="briefingSections"
+            :open="openSections.briefing"
+            @toggle="toggleSection('briefing')"
+          />
+
+          <!-- Decision summary and selected scenario graph stay at the top of
+               the workspace because they are the primary underwriting outputs. -->
+          <section
+            id="section-decision"
+            class="mb-5 grid gap-5 decision-top max-[1260px]:grid-cols-1"
+          >
+            <DecisionOverview
+              :recommendation="recommendation"
+              :active-case-label="
+                casePresets.find((preset) => preset.id === currentPresetId)
+                  ?.label ?? 'Manual'
+              "
+              :proposed-servicing-date="model.case.proposedServicingDate"
+              :current-payment-amount="currentFirstYearPaymentAmount"
+              :recommended-payment-amount="recommendedFirstYearPaymentAmount"
+              :operating-income="firstYearOperatingIncome"
+              :recommended-payment-gap="recommendedPaymentGap"
+            />
+
+            <OutcomeGraphCard
+              :outcome-series="outcomeSeries"
+              :graph-percent="graphPercent"
+            />
+          </section>
+
+          <PipelineCountsCard :items="pipelineCounts" />
+
+          <ScenarioComparisonGrid
+            :scenarios="topScenarioComparisons"
+            @select="selectedScenarioId = $event"
+          />
+
+          <section
+            v-if="results"
+            class="mb-5 grid gap-5 decision-top secondary max-[1260px]:grid-cols-1"
+          >
+            <RankedAlternativesPanel
+              :baseline-row="baselineScenarioRow"
+              :scenarios="rankedAlternativeRows"
+              :selected-scenario-id="selectedScenarioId"
+              @select="selectedScenarioId = $event"
+            />
+
+            <RecommendedActionsPanel
+              :selected-scenario="selectedScenario"
+              :recommended-loan-cards="recommendedLoanCards"
+            />
+          </section>
+
+          <CurrentVsRecommendedSection
+            v-if="selectedScenario"
+            :proposed-servicing-date="model.case.proposedServicingDate"
+            :operating-income="firstYearOperatingIncome"
+            :current-payment-amount="currentFirstYearPaymentAmount"
+            :recommended-payment-amount="recommendedFirstYearPaymentAmount"
+            :current-payment-gap="currentPaymentGap"
+            :recommended-payment-gap="recommendedPaymentGap"
+            :debt-margin-percent="Number(model.case.debtMarginPercent ?? 0)"
+            :loan-comparison-rows="loanComparisonRows"
+          />
+
+          <CalculationWorksheetCard
+            v-if="selectedScenario"
+            :rows="calculationSummaryRows"
+            @print="exportWorksheet"
+          />
+
+          <section
+            class="mb-5 rounded-[18px] border border-brand-line bg-brand-panel p-6 shadow-[0_14px_34px_rgba(8,45,76,0.06)]"
+          >
+            <header
+              class="mb-4 flex flex-col gap-2 md:flex-row md:items-baseline md:justify-between"
             >
               <div>
-                <span class="section-kicker">Case summary</span>
-                <h2>Pre-decision briefing</h2>
-              </div>
-              <span>{{ openSections.briefing ? 'Collapse' : 'Expand' }}</span>
-            </button>
-            <div v-if="openSections.briefing" class="briefing-grid">
-              <article
-                v-for="section in briefingSections"
-                :key="section.title"
-                class="briefing-card"
-              >
-                <span>{{ section.title }}</span>
-                <div class="briefing-detail-list">
-                  <div
-                    v-for="item in section.items"
-                    :key="`${section.title}-${item.label}`"
-                    class="briefing-detail-row"
-                  >
-                    <small>{{ item.label }}</small>
-                    <div
-                      v-if="Array.isArray(item.value)"
-                      class="briefing-multiline"
-                    >
-                      <strong
-                        v-for="line in item.value"
-                        :key="`${section.title}-${item.label}-${line}`"
-                      >
-                        {{ line }}
-                      </strong>
-                    </div>
-                    <strong v-else>{{ item.value }}</strong>
-                  </div>
-                </div>
-              </article>
-            </div>
-          </section>
-
-          <section id="section-decision" class="decision-top">
-            <article class="decision-card">
-              <div class="decision-header">
-                <div>
-                  <span class="section-kicker">Decision</span>
-                  <h2>
-                    {{
-                      recommendation
-                        ? recommendation.outcomeCode
-                        : 'No recommendation yet'
-                    }}
-                  </h2>
-                  <p>
-                    {{
-                      recommendation
-                        ? recommendation.explanation
-                        : 'Run the engine to generate ranked servicing options and compare outcomes.'
-                    }}
-                  </p>
-                </div>
-                <div class="score-pill">
-                  <span>Score</span>
-                  <strong>{{ recommendation?.score ?? '--' }}</strong>
-                </div>
-              </div>
-
-              <div v-if="recommendation" class="decision-metrics">
-                <div class="decision-metric">
-                  <span>Active case</span>
-                  <strong>{{
-                    casePresets.find((preset) => preset.id === currentPresetId)
-                      ?.label ?? 'Manual'
-                  }}</strong>
-                </div>
-                <div class="decision-metric">
-                  <span>Restructuring date</span>
-                  <strong>{{
-                    formatDate(model.case.proposedServicingDate)
-                  }}</strong>
-                </div>
-                <div class="decision-metric">
-                  <span>Current payment amount</span>
-                  <strong>{{
-                    currencyCompact(currentFirstYearPaymentAmount)
-                  }}</strong>
-                </div>
-                <div class="decision-metric">
-                  <span>Recommended payment amount</span>
-                  <strong>{{
-                    currencyCompact(recommendedFirstYearPaymentAmount)
-                  }}</strong>
-                </div>
-                <div class="decision-metric">
-                  <span>Operating income / cash flow</span>
-                  <strong>{{
-                    currencyCompact(firstYearOperatingIncome)
-                  }}</strong>
-                </div>
-                <div class="decision-metric">
-                  <span>Operating income vs recommended payment</span>
-                  <strong>{{ currencyCompact(recommendedPaymentGap) }}</strong>
-                </div>
-              </div>
-            </article>
-
-            <article class="chart-panel">
-              <header class="mini-header">
-                <h3>Outcome graph</h3>
                 <span
-                  >Selected scenario across affordability and protection
-                  measures</span
+                  class="mb-2 block text-[0.78rem] font-bold uppercase tracking-[0.11em] text-[#0c4a76]"
                 >
-              </header>
-              <div v-if="outcomeSeries.length > 0" class="outcome-graph">
-                <div
-                  v-for="item in outcomeSeries"
-                  :key="item.label"
-                  class="graph-row"
-                >
-                  <div class="graph-labels">
-                    <strong>{{ item.label }}</strong>
-                    <span>{{ item.displayValue }}</span>
-                  </div>
-                  <div class="graph-track">
-                    <div
-                      class="graph-target"
-                      :style="{ left: graphPercent(item.target, item.max) }"
-                    ></div>
-                    <div
-                      class="graph-bar"
-                      :class="item.tone"
-                      :style="{ width: graphPercent(item.value, item.max) }"
-                    ></div>
-                  </div>
-                </div>
+                  Scoring
+                </span>
+                <h3 class="m-0 text-[1.2rem] font-bold text-[#0f1c2e]">
+                  How recommendation scores are built
+                </h3>
               </div>
-            </article>
-          </section>
-
-          <section
-            v-if="pipelineCounts.length > 0"
-            class="comparison-panel chart-panel full-width-card"
-          >
-            <header class="mini-header">
-              <h3>Pipeline counts</h3>
-              <span
-                >How many paths were generated, screened, and recommended</span
-              >
-            </header>
-            <div class="pipeline-grid">
-              <div
-                v-for="item in pipelineCounts"
-                :key="item.label"
-                class="metric-tile pipeline-tile"
-              >
-                <span>{{ item.label }}</span>
-                <strong>{{ item.value }}</strong>
-              </div>
-            </div>
-          </section>
-
-          <section
-            v-if="topScenarioComparisons.length > 0"
-            class="comparison-panel chart-panel full-width-card"
-          >
-            <header class="mini-header">
-              <h3>Recommendation comparison</h3>
-              <span>Top 3 ranked paths shown side by side</span>
-            </header>
-            <div class="scenario-comparison-layout">
-              <button
-                v-for="scenario in topScenarioComparisons"
-                :key="scenario.id"
-                class="scenario-compare-card"
-                :class="{ active: scenario.isSelected }"
-                @click="selectedScenarioId = scenario.id"
-              >
-                <div class="scenario-compare-head">
-                  <div>
-                    <strong
-                      >#{{ scenario.rank }} {{ scenario.outcomeCode }}</strong
-                    >
-                    <span class="ml-2">
-                      &nbsp;{{ scenario.actionSummary }}</span
-                    >
-                  </div>
-                  <strong>{{ scenario.score }}</strong>
-                </div>
-                <div class="tag-row">
-                  <span
-                    v-for="badge in scenario.actionBadges"
-                    :key="`${scenario.id}-${badge}`"
-                    class="action-badge"
-                  >
-                    {{ formatActionLabel(badge) }}
-                  </span>
-                  <span
-                    v-for="flag in scenario.flags"
-                    :key="`${scenario.id}-${flag}`"
-                    class="action-badge flag"
-                  >
-                    {{ flag }}
-                  </span>
-                </div>
-                <div class="scenario-compare-grid">
-                  <div class="scenario-compare-metric">
-                    <span>Score</span>
-                    <strong>{{ scenario.score }}</strong>
-                    <div class="mini-track">
-                      <div
-                        class="mini-bar navy"
-                        :style="{ width: `${scenario.scoreWidth}%` }"
-                      ></div>
-                    </div>
-                  </div>
-                  <div class="scenario-compare-metric">
-                    <span>Annual payment</span>
-                    <strong>{{
-                      currencyCompact(scenario.annualPayment)
-                    }}</strong>
-                    <div class="mini-track">
-                      <div
-                        class="mini-bar orange"
-                        :style="{ width: `${scenario.annualPaymentWidth}%` }"
-                      ></div>
-                    </div>
-                  </div>
-                  <div class="scenario-compare-metric">
-                    <span>Cash retained</span>
-                    <strong>{{
-                      currencyCompact(scenario.retainedCash)
-                    }}</strong>
-                    <div class="mini-track">
-                      <div
-                        class="mini-bar teal"
-                        :style="{ width: `${scenario.retainedCashWidth}%` }"
-                      ></div>
-                    </div>
-                  </div>
-                  <div class="scenario-compare-metric">
-                    <span>Coverage ratio</span>
-                    <strong>{{ scenario.coverageRatio.toFixed(2) }}x</strong>
-                    <div class="mini-track">
-                      <div
-                        class="mini-bar blue"
-                        :style="{ width: `${scenario.coverageWidth}%` }"
-                      ></div>
-                    </div>
-                  </div>
-                </div>
-              </button>
-            </div>
-          </section>
-
-          <section v-if="results" class="decision-top secondary">
-            <article class="chart-panel">
-              <header class="mini-header">
-                <h3>Ranked alternatives</h3>
-                <span>Lender can still choose from the ranked set</span>
-              </header>
-              <div class="scenario-list">
-                <div class="scenario-button baseline-row">
-                  <div>
-                    <strong>{{ baselineScenarioRow.label }}</strong>
-                    <span>{{ baselineScenarioRow.description }}</span>
-                  </div>
-                  <div class="scenario-stats">
-                    <strong>{{
-                      currencyCompact(baselineScenarioRow.annualPayment)
-                    }}</strong>
-                    <span>{{
-                      currencyCompact(baselineScenarioRow.cashMargin)
-                    }}</span>
-                  </div>
-                </div>
-                <button
-                  v-for="scenario in results.scenarios"
-                  :key="scenario.id"
-                  class="scenario-button"
-                  :class="{
-                    active:
-                      selectedScenario && selectedScenario.id === scenario.id,
-                  }"
-                  @click="selectedScenarioId = scenario.id"
-                >
-                  <div>
-                    <strong
-                      >#{{ scenario.rank }} {{ scenario.outcomeCode }}</strong
-                    >
-                    <span>{{ scenario.rationale }}</span>
-                    <div class="tag-row compact">
-                      <span
-                        v-for="flag in scenarioPolicyFlags(scenario)"
-                        :key="`${scenario.id}-${flag}`"
-                        class="action-badge flag"
-                      >
-                        {{ flag }}
-                      </span>
-                    </div>
-                  </div>
-                  <div class="scenario-stats">
-                    <strong>{{ scenario.score }}</strong>
-                    <span>{{
-                      percent(scenario.firstYearMetrics.cashFlowMargin)
-                    }}</span>
-                  </div>
-                </button>
-              </div>
-            </article>
-
-            <article v-if="selectedScenario" class="chart-panel">
-              <header class="mini-header">
-                <h3>Recommended actions by loan</h3>
-                <span>{{ selectedScenario.id }}</span>
-              </header>
-              <div class="metric-grid">
-                <div class="metric-tile">
-                  <span>Writedown</span>
-                  <strong>{{
-                    currency(selectedScenario.scenario.writedownAmount)
-                  }}</strong>
-                </div>
-                <div class="metric-tile">
-                  <span>Support</span>
-                  <strong>{{
-                    currency(
-                      selectedScenario.scenario.conservationSupportAmount,
-                    )
-                  }}</strong>
-                </div>
-                <div class="metric-tile">
-                  <span>Coverage ratio</span>
-                  <strong>{{
-                    selectedScenario.governmentProtectionMetrics.coverageRatio
-                  }}</strong>
-                </div>
-                <div class="metric-tile">
-                  <span>Selected actions</span>
-                  <strong>{{
-                    Object.values(selectedScenario.actionsByLoan).flat().length
-                  }}</strong>
-                </div>
-              </div>
-              <div class="record-stack compact">
-                <article
-                  v-for="loan in recommendedLoanCards"
-                  :key="loan.loanId"
-                  class="record-card tone-soft"
-                >
-                  <div class="record-card-head">
-                    <h4>{{ loan.loanId }}</h4>
-                    <span>{{ loan.loanType }}</span>
-                  </div>
-                  <div class="loan-recommendation-grid">
-                    <div class="loan-recommendation-row">
-                      <small>Recommended actions</small>
-                      <strong>{{
-                        formatActions(loan.actions) || 'No Change'
-                      }}</strong>
-                    </div>
-                    <div class="loan-recommendation-row">
-                      <small>Current vs proposed term</small>
-                      <strong
-                        >{{ yearsLabel(loan.currentTermYears) }} ->
-                        {{ yearsLabel(loan.recommendedTermYears) }}</strong
-                      >
-                    </div>
-                    <div class="loan-recommendation-row">
-                      <small>Current vs proposed rate</small>
-                      <strong
-                        >{{ ratePercent(loan.currentRate) }} ->
-                        {{ ratePercent(loan.recommendedRate) }}</strong
-                      >
-                    </div>
-                    <div class="loan-recommendation-row">
-                      <small>Current vs proposed annual payment</small>
-                      <strong
-                        >{{ currency(loan.currentFirstYearPayment) }} ->
-                        {{ currency(loan.recommendedFirstYearPayment) }}</strong
-                      >
-                    </div>
-                  </div>
-                </article>
-              </div>
-              <p v-if="selectedScenario.rejectionReason" class="rejection-copy">
-                {{ selectedScenario.rejectionReason }}
-              </p>
-            </article>
-          </section>
-
-          <section v-if="selectedScenario" class="comparison-panel chart-panel">
-            <header class="mini-header">
-              <h3>Current vs recommended loan terms</h3>
-              <span>
-                Restructuring date:
-                {{ formatDate(model.case.proposedServicingDate) }}
+              <span class="text-[0.86rem] font-[550] text-[#293c4f]">
+                Weighted ranking applied after eligibility and protection checks
               </span>
             </header>
-            <div class="comparison-grid">
-              <div class="comparison-summary">
-                <div class="metric-tile">
-                  <span>Operating income / cash flow</span>
-                  <strong>{{
-                    currencyCompact(firstYearOperatingIncome)
-                  }}</strong>
-                </div>
-                <div class="metric-tile">
-                  <span>Current payment amount</span>
-                  <strong>{{
-                    currencyCompact(currentFirstYearPaymentAmount)
-                  }}</strong>
-                </div>
-                <div class="metric-tile">
-                  <span>Recommended payment amount</span>
-                  <strong>{{
-                    currencyCompact(recommendedFirstYearPaymentAmount)
-                  }}</strong>
-                </div>
-                <div class="metric-tile">
-                  <span>Income minus current payment</span>
-                  <strong>{{ currencyCompact(currentPaymentGap) }}</strong>
-                </div>
-                <div class="metric-tile">
-                  <span>Income minus recommended payment</span>
-                  <strong>{{ currencyCompact(recommendedPaymentGap) }}</strong>
-                </div>
-                <div class="metric-tile">
-                  <span>Debt margin reserve</span>
-                  <strong
-                    >{{
-                      Number(model.case.debtMarginPercent ?? 0).toFixed(0)
-                    }}%</strong
-                  >
-                </div>
-              </div>
 
-              <div class="comparison-table-wrap">
-                <table class="comparison-table">
-                  <thead>
-                    <tr>
-                      <th>Loan</th>
-                      <th>Current rate</th>
-                      <th>Rec. rate</th>
-                      <th>Current term</th>
-                      <th>Rec. term</th>
-                      <th>Current annual</th>
-                      <th>Rec. annual</th>
-                      <th>Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr v-for="row in loanComparisonRows" :key="row.loanId">
-                      <td>
-                        <strong>{{ row.loanId }}</strong>
-                      </td>
-                      <td>{{ ratePercent(row.currentRate) }}</td>
-                      <td>{{ ratePercent(row.recommendedRate) }}</td>
-                      <td>{{ yearsLabel(row.currentTermYears) }}</td>
-                      <td>{{ yearsLabel(row.recommendedTermYears) }}</td>
-                      <td>{{ currency(row.currentFirstYearPayment) }}</td>
-                      <td>{{ currency(row.recommendedFirstYearPayment) }}</td>
-                      <td>{{ formatActions(row.actions) || 'No Change' }}</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </section>
-
-          <section
-            v-if="selectedScenario"
-            class="comparison-panel chart-panel full-width-card worksheet-card"
-          >
-            <header class="mini-header worksheet-header">
-              <div>
-                <h3>Calculation detail worksheet</h3>
-                <span
-                  >Line-by-line view of how the selected recommendation is
-                  derived</span
+            <div class="grid gap-4 xl:grid-cols-[0.9fr_1.1fr]">
+              <div class="grid gap-3">
+                <div
+                  v-for="row in scoringSummaryRows"
+                  :key="`main-${row.label}`"
+                  class="flex items-center justify-between rounded-[14px] border border-[#d4dee7] bg-[#eef4f9] px-4 py-3"
                 >
+                  <strong class="text-[#143b5f]">{{ row.label }}</strong>
+                  <span class="text-[0.98rem] font-bold text-[#0f1c2e]">
+                    {{ row.value }}
+                  </span>
+                </div>
               </div>
-              <button
-                class="primary-button worksheet-button"
-                @click="exportWorksheet"
+
+              <div
+                class="rounded-[14px] border border-[#d4dee7] bg-[#f7fafc] p-4"
               >
-                Print worksheet
-              </button>
-            </header>
-            <div class="comparison-table-wrap">
-              <table class="comparison-table calculation-table">
-                <thead>
-                  <tr>
-                    <th>Category</th>
-                    <th>Metric</th>
-                    <th>Formula / basis</th>
-                    <th>Result</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr
-                    v-for="row in calculationSummaryRows"
-                    :key="`${row.category}-${row.metric}`"
+                <div class="grid gap-3">
+                  <div
+                    v-for="line in scoringMechanism"
+                    :key="line"
+                    class="flex gap-3 border-t border-[#d6e0e9] pt-3 first:border-t-0 first:pt-0"
                   >
-                    <td>{{ row.category }}</td>
-                    <td>
-                      <strong>{{ row.metric }}</strong>
-                    </td>
-                    <td>{{ row.formula }}</td>
-                    <td>
-                      <strong>{{ row.value }}</strong>
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
+                    <span
+                      class="mt-1 inline-block h-2.5 w-2.5 flex-none rounded-full bg-[#0c4a76]"
+                    ></span>
+                    <span class="text-[0.95rem] leading-6 text-[#294051]">
+                      {{ line }}
+                    </span>
+                  </div>
+                </div>
+              </div>
             </div>
           </section>
 
-          <section class="accordion-list">
-            <article id="section-borrower" class="accordion-panel">
-              <button
-                class="accordion-header"
-                @click="toggleSection('borrower')"
-              >
-                <div>
-                  <span class="section-kicker">Case setup</span>
-                  <h2>Borrower / case</h2>
-                </div>
-                <span>{{ openSections.borrower ? 'Collapse' : 'Expand' }}</span>
-              </button>
-              <div v-if="openSections.borrower" class="accordion-body">
-                <div class="field-grid four-columns">
-                  <label>
-                    Case preset
-                    <select
-                      :value="currentPresetId"
-                      @change="applyPreset($event.target.value)"
-                    >
-                      <option
-                        v-for="preset in casePresets"
-                        :key="preset.id"
-                        :value="preset.id"
-                      >
-                        {{ preset.label }}
-                      </option>
-                    </select>
-                  </label>
-                  <label>
-                    Borrower ID
-                    <input v-model="model.case.borrowerId" />
-                  </label>
-                  <label>
-                    Borrower type
-                    <select v-model="model.case.borrowerType">
-                      <option
-                        v-for="option in borrowerTypeOptions"
-                        :key="option.value"
-                        :value="option.value"
-                      >
-                        {{ option.label }}
-                      </option>
-                    </select>
-                  </label>
-                  <label>
-                    State
-                    <select v-model="model.case.state">
-                      <option
-                        v-for="[code, state] in stateOptions"
-                        :key="code"
-                        :value="code"
-                      >
-                        {{ code }} - {{ state.label }}
-                      </option>
-                    </select>
-                  </label>
-                  <label>
-                    County
-                    <select v-model="model.case.county">
-                      <option
-                        v-for="county in countyOptions"
-                        :key="county"
-                        :value="county"
-                      >
-                        {{ county }}
-                      </option>
-                    </select>
-                  </label>
-                  <label>
-                    Proposed servicing date
-                    <input
-                      v-model="model.case.proposedServicingDate"
-                      type="date"
-                    />
-                  </label>
-                  <label>
-                    Debt margin (%)
-                    <input
-                      v-model.number="model.case.debtMarginPercent"
-                      type="number"
-                      min="0"
-                      max="50"
-                    />
-                  </label>
-                  <label>
-                    First payment due
-                    <input
-                      v-model="model.case.firstPaymentDueDate"
-                      type="date"
-                    />
-                  </label>
-                  <label>
-                    Conservation acres
-                    <input
-                      v-model.number="model.case.conservationAcres"
-                      type="number"
-                      min="0"
-                    />
-                  </label>
-                </div>
-              </div>
-            </article>
+          <!-- Editable case setup remains below the recommendation area so the
+               lender can iterate on assumptions and rerun the engine. -->
+          <section class="grid gap-[14px]">
+            <BorrowerCaseSection
+              :open="openSections.borrower"
+              :borrower-type-options="borrowerTypeOptions"
+              :distress-cause-options="distressCauseOptions"
+              :state-options="stateOptions"
+              :county-options="countyOptions"
+              :model="model"
+              @toggle="toggleSection('borrower')"
+            />
 
-            <article id="section-cashFlow" class="accordion-panel">
-              <button
-                class="accordion-header"
-                @click="toggleSection('cashFlow')"
-              >
-                <div>
-                  <span class="section-kicker">Repayment capacity</span>
-                  <h2>Cash flow</h2>
-                </div>
-                <span>{{ openSections.cashFlow ? 'Collapse' : 'Expand' }}</span>
-              </button>
-              <div v-if="openSections.cashFlow" class="accordion-body">
-                <div class="inner-panel">
-                  <h3>Annual operating view</h3>
-                  <div class="field-grid">
-                    <label>
-                      Balance available
-                      <input
-                        v-model.number="
-                          model.cashFlow.firstYear.balanceAvailable
-                        "
-                        type="number"
-                        min="0"
-                      />
-                    </label>
-                    <label>
-                      Operating expense
-                      <input
-                        v-model.number="
-                          model.cashFlow.firstYear.operatingExpense
-                        "
-                        type="number"
-                        min="0"
-                      />
-                    </label>
-                    <label>
-                      Operating interest
-                      <input
-                        v-model.number="
-                          model.cashFlow.firstYear.operatingInterestExpense
-                        "
-                        type="number"
-                        min="0"
-                      />
-                    </label>
-                    <label>
-                      Owner withdrawals
-                      <input
-                        v-model.number="
-                          model.cashFlow.firstYear.ownerWithdrawals
-                        "
-                        type="number"
-                        min="0"
-                      />
-                    </label>
-                    <label>
-                      Non-agency debt + taxes
-                      <input
-                        v-model.number="
-                          model.cashFlow.firstYear.nonAgencyDebtAndTaxes
-                        "
-                        type="number"
-                        min="0"
-                      />
-                    </label>
-                  </div>
-                </div>
-              </div>
-            </article>
+            <CashFlowSection
+              :open="openSections.cashFlow"
+              :model="model"
+              @toggle="toggleSection('cashFlow')"
+            />
 
-            <article id="section-existingLoans" class="accordion-panel">
-              <button
-                class="accordion-header"
-                @click="toggleSection('existingLoans')"
-              >
-                <div>
-                  <span class="section-kicker">Debt inventory</span>
-                  <h2>Existing loans</h2>
-                </div>
-                <span>{{
-                  openSections.existingLoans ? 'Collapse' : 'Expand'
-                }}</span>
-              </button>
-              <div v-if="openSections.existingLoans" class="accordion-body">
-                <div class="section-actions">
-                  <span>{{ model.existingLoans.length }} loans</span>
-                  <button class="ghost-button" @click="addExistingLoan">
-                    Add loan
-                  </button>
-                </div>
-                <div class="record-stack">
-                  <article
-                    v-for="(loan, index) in model.existingLoans"
-                    :key="`${loan.loanId}-${index}`"
-                    class="record-card"
-                  >
-                    <div class="record-card-head">
-                      <div>
-                        <h3>{{ loan.loanId || `Loan ${index + 1}` }}</h3>
-                        <span>{{
-                          lookupLabel(loanTypeOptions, loan.loanType)
-                        }}</span>
-                      </div>
-                      <button
-                        class="ghost-button destructive"
-                        @click="removeExistingLoan(index)"
-                      >
-                        Remove
-                      </button>
-                    </div>
-                    <div class="loan-summary-row">
-                      <div class="loan-summary-chip">
-                        <span>Loan type</span>
-                        <strong>{{
-                          lookupLabel(loanTypeOptions, loan.loanType)
-                        }}</strong>
-                      </div>
-                      <div class="loan-summary-chip">
-                        <span>Remaining term</span>
-                        <strong>{{
-                          yearsLabel(loan.remainingTermYears || 0)
-                        }}</strong>
-                      </div>
-                      <div class="loan-summary-chip">
-                        <span>Payment amount</span>
-                        <strong>{{
-                          currencyCompact(loan.firstYearPayment)
-                        }}</strong>
-                      </div>
-                      <div class="loan-summary-chip">
-                        <span>Total outstanding</span>
-                        <strong>{{
-                          currencyCompact(
-                            Number(loan.principal ?? 0) +
-                              Number(loan.accruedInterest ?? 0),
-                          )
-                        }}</strong>
-                      </div>
-                    </div>
-                    <div class="field-grid four-columns">
-                      <label>
-                        Fund code
-                        <input v-model="loan.fundCode" />
-                      </label>
-                      <label>
-                        Loan ID
-                        <input v-model="loan.loanId" />
-                      </label>
-                      <label>
-                        Loan type
-                        <select v-model="loan.loanType">
-                          <option
-                            v-for="option in loanTypeOptions"
-                            :key="option.value"
-                            :value="option.value"
-                          >
-                            {{ option.label }}
-                          </option>
-                        </select>
-                      </label>
-                      <label>
-                        Principal
-                        <input
-                          v-model.number="loan.principal"
-                          type="number"
-                          min="0"
-                        />
-                      </label>
-                      <label>
-                        Accrued interest
-                        <input
-                          v-model.number="loan.accruedInterest"
-                          type="number"
-                          min="0"
-                        />
-                      </label>
-                      <label>
-                        Existing rate
-                        <input
-                          v-model.number="loan.existingRate"
-                          type="number"
-                          step="0.001"
-                          min="0"
-                        />
-                      </label>
-                      <label>
-                        Remaining term
-                        <input
-                          v-model.number="loan.remainingTermYears"
-                          type="number"
-                          min="1"
-                        />
-                      </label>
-                      <label>
-                        First-year payment
-                        <input
-                          v-model.number="loan.firstYearPayment"
-                          type="number"
-                          min="0"
-                        />
-                      </label>
-                    </div>
-                  </article>
-                </div>
-              </div>
-            </article>
+            <ExistingLoansSection
+              :open="openSections.existingLoans"
+              :loans="model.existingLoans"
+              :loan-type-options="loanTypeOptions"
+              :lookup-label="lookupLabel"
+              @toggle="toggleSection('existingLoans')"
+              @add-loan="addExistingLoan"
+              @remove-loan="removeExistingLoan"
+            />
 
-            <article id="section-collateral" class="accordion-panel">
-              <button
-                class="accordion-header"
-                @click="toggleSection('collateral')"
-              >
-                <div>
-                  <span class="section-kicker">Recovery assumptions</span>
-                  <h2>Collateral</h2>
-                </div>
-                <span>{{
-                  openSections.collateral ? 'Collapse' : 'Expand'
-                }}</span>
-              </button>
-              <div v-if="openSections.collateral" class="accordion-body">
-                <div class="section-actions">
-                  <span>{{ model.collateral.length }} collateral records</span>
-                  <button class="ghost-button" @click="addCollateral">
-                    Add collateral
-                  </button>
-                </div>
-                <div class="record-stack">
-                  <article
-                    v-for="(item, index) in model.collateral"
-                    :key="`${item.propertyId}-${index}`"
-                    class="record-card"
-                  >
-                    <div class="record-card-head">
-                      <div>
-                        <h3>
-                          {{ item.propertyId || `Collateral ${index + 1}` }}
-                        </h3>
-                        <span>{{
-                          lookupLabel(collateralTypeOptions, item.propertyType)
-                        }}</span>
-                      </div>
-                      <button
-                        class="ghost-button destructive"
-                        @click="removeCollateral(index)"
-                      >
-                        Remove
-                      </button>
-                    </div>
-                    <div class="loan-summary-row">
-                      <div class="loan-summary-chip">
-                        <span>Market value</span>
-                        <strong>{{ currencyCompact(item.marketValue) }}</strong>
-                      </div>
-                      <div class="loan-summary-chip">
-                        <span>Recoverable value</span>
-                        <strong>{{
-                          currencyCompact(item.recoverableValue)
-                        }}</strong>
-                      </div>
-                    </div>
-                    <div class="field-grid four-columns">
-                      <label>
-                        Property ID
-                        <input v-model="item.propertyId" />
-                      </label>
-                      <label>
-                        Property type
-                        <select v-model="item.propertyType">
-                          <option
-                            v-for="option in collateralTypeOptions"
-                            :key="option.value"
-                            :value="option.value"
-                          >
-                            {{ option.label }}
-                          </option>
-                        </select>
-                      </label>
-                      <label>
-                        Description
-                        <input v-model="item.description" />
-                      </label>
-                      <label>
-                        Market value
-                        <input
-                          v-model.number="item.marketValue"
-                          type="number"
-                          min="0"
-                        />
-                      </label>
-                      <label>
-                        Recoverable value
-                        <input
-                          v-model.number="item.recoverableValue"
-                          type="number"
-                          min="0"
-                        />
-                      </label>
-                      <label>
-                        Monthly income
-                        <input
-                          v-model.number="item.monthlyIncome"
-                          type="number"
-                          min="0"
-                        />
-                      </label>
-                      <label>
-                        Repair cost
-                        <input
-                          v-model.number="item.repairCost"
-                          type="number"
-                          min="0"
-                        />
-                      </label>
-                      <label>
-                        Other expense
-                        <input
-                          v-model.number="item.otherExpenseCost"
-                          type="number"
-                          min="0"
-                        />
-                      </label>
-                    </div>
-                  </article>
-                </div>
-              </div>
-            </article>
+            <CollateralSection
+              :open="openSections.collateral"
+              :collateral="model.collateral"
+              :collateral-type-options="collateralTypeOptions"
+              :lookup-label="lookupLabel"
+              @toggle="toggleSection('collateral')"
+              @add-collateral="addCollateral"
+              @remove-collateral="removeCollateral"
+            />
 
-            <article id="section-liens" class="accordion-panel">
-              <button class="accordion-header" @click="toggleSection('liens')">
-                <div>
-                  <span class="section-kicker">Security mapping</span>
-                  <h2>Liens & security</h2>
-                </div>
-                <span>{{ openSections.liens ? 'Collapse' : 'Expand' }}</span>
-              </button>
-              <div v-if="openSections.liens" class="accordion-body">
-                <div class="split-columns">
-                  <div class="inner-panel">
-                    <div class="section-actions">
-                      <span>Property / loan links</span>
-                      <button class="ghost-button" @click="addPropertyLink">
-                        Add link
-                      </button>
-                    </div>
-                    <div class="record-stack compact">
-                      <article
-                        v-for="(link, index) in model.liens.propertyLoanLinks"
-                        :key="`${link.propertyId}-${link.loanId}-${index}`"
-                        class="record-card compact"
-                      >
-                        <div class="record-card-head">
-                          <h4>Link {{ index + 1 }}</h4>
-                          <button
-                            class="ghost-button destructive"
-                            @click="removePropertyLink(index)"
-                          >
-                            Remove
-                          </button>
-                        </div>
-                        <div class="field-grid">
-                          <label>
-                            Property ID
-                            <input v-model="link.propertyId" />
-                          </label>
-                          <label>
-                            Loan ID
-                            <input v-model="link.loanId" />
-                          </label>
-                          <label>
-                            Filing date
-                            <input v-model="link.filingDate" type="date" />
-                          </label>
-                          <label>
-                            Lien rank
-                            <input
-                              v-model.number="link.lienRank"
-                              type="number"
-                              min="1"
-                            />
-                          </label>
-                        </div>
-                      </article>
-                    </div>
-                  </div>
+            <LiensSection
+              :open="openSections.liens"
+              :liens="model.liens"
+              @toggle="toggleSection('liens')"
+              @add-property-link="addPropertyLink"
+              @remove-property-link="removePropertyLink"
+              @add-prior-lien="addPriorLien"
+              @remove-prior-lien="removePriorLien"
+            />
 
-                  <div class="inner-panel">
-                    <div class="section-actions">
-                      <span>Prior liens</span>
-                      <button class="ghost-button" @click="addPriorLien">
-                        Add prior lien
-                      </button>
-                    </div>
-                    <div class="record-stack compact">
-                      <article
-                        v-for="(lien, index) in model.liens.priorLiens"
-                        :key="`${lien.propertyId}-${index}`"
-                        class="record-card compact"
-                      >
-                        <div class="record-card-head">
-                          <h4>Prior lien {{ index + 1 }}</h4>
-                          <button
-                            class="ghost-button destructive"
-                            @click="removePriorLien(index)"
-                          >
-                            Remove
-                          </button>
-                        </div>
-                        <div class="field-grid">
-                          <label>
-                            Property ID
-                            <input v-model="lien.propertyId" />
-                          </label>
-                          <label>
-                            Creditor
-                            <input v-model="lien.creditorName" />
-                          </label>
-                          <label>
-                            Prior debt
-                            <input
-                              v-model.number="lien.totalDebtPriorToFsaLien"
-                              type="number"
-                              min="0"
-                            />
-                          </label>
-                          <label>
-                            Filing date
-                            <input v-model="lien.filingDate" type="date" />
-                          </label>
-                        </div>
-                      </article>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </article>
-
-            <article id="section-policy" class="accordion-panel">
-              <button class="accordion-header" @click="toggleSection('policy')">
-                <div>
-                  <span class="section-kicker">Engine settings</span>
-                  <h2>Policy snapshot</h2>
-                </div>
-                <span>{{ openSections.policy ? 'Collapse' : 'Expand' }}</span>
-              </button>
-              <div v-if="openSections.policy" class="accordion-body">
-                <div class="briefing-grid">
-                  <article
-                    v-for="card in policyCards"
-                    :key="card.title"
-                    class="briefing-card"
-                  >
-                    <span>{{ card.title }}</span>
-                    <div class="briefing-detail-list">
-                      <div
-                        v-for="row in card.rows"
-                        :key="`${card.title}-${row.label}`"
-                        class="briefing-detail-row"
-                      >
-                        <small>{{ row.label }}</small>
-                        <strong>{{ row.value }}</strong>
-                      </div>
-                    </div>
-                  </article>
-                </div>
-              </div>
-            </article>
+            <PolicySnapshotSection
+              :open="openSections.policy"
+              :cards="policyCards"
+              @toggle="toggleSection('policy')"
+            />
           </section>
         </template>
       </main>
@@ -2414,22 +1520,6 @@ select {
   font: inherit;
 }
 
-.workspace {
-  min-height: 100vh;
-  background: #dfe5eb;
-}
-
-.topbar {
-  min-height: 74px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 24px;
-  padding: 0 28px;
-  background: #f8fafc;
-  border-bottom: 1px solid #c8d3df;
-}
-
 .topbar-copy {
   display: flex;
   align-items: center;
@@ -2448,24 +1538,9 @@ select {
   object-fit: contain;
 }
 
-.workspace-shell {
-  display: grid;
-  grid-template-columns: 295px minmax(0, 1fr);
-  min-height: calc(100vh - 108px);
-}
-
 .sidebar {
-  background: linear-gradient(180deg, #033a67, #022c50 100%);
   color: #f4f8fb;
   padding: 0px 0 0px;
-}
-
-.sidebar-card,
-.sidebar-note {
-  margin: 20px 20px 20px;
-  padding: 20px;
-  border-radius: 16px;
-  background: rgba(255, 255, 255, 0.08);
 }
 
 .sidebar-case {
@@ -2490,10 +1565,6 @@ select {
   font-size: 0.92rem;
 }
 
-.sidebar-nav {
-  display: grid;
-}
-
 .nav-item {
   border: 0;
   border-top: 1px solid rgba(195, 215, 232, 0.18);
@@ -2506,7 +1577,7 @@ select {
   text-align: left;
   cursor: pointer;
   font-size: 1rem;
-  font-weight: 600;
+  font-weight: 500;
 }
 
 .nav-item.active {
@@ -2535,14 +1606,6 @@ select {
   border-radius: 999px;
   background: #24dd6f;
   flex: 0 0 auto;
-}
-
-.content-area {
-  padding: 32px 28px 48px;
-}
-
-.prelude-header {
-  margin-bottom: 12px;
 }
 
 .section-kicker {
@@ -2613,13 +1676,6 @@ select {
 .loading-copy {
   background: #e9f1f8;
   color: #34566f;
-}
-
-.decision-top {
-  display: grid;
-  grid-template-columns: 1.2fr 0.8fr;
-  gap: 20px;
-  margin-bottom: 20px;
 }
 
 .decision-top.secondary {
@@ -2945,10 +2001,6 @@ label {
   background: #f7fafc;
 }
 
-.briefing-panel {
-  margin-bottom: 20px;
-}
-
 .briefing-header {
   width: 100%;
   margin-bottom: 18px;
@@ -3212,9 +2264,7 @@ select {
 }
 
 @media (max-width: 1260px) {
-  .decision-top,
   .decision-top.secondary,
-  .workspace-shell,
   .split-columns,
   .four-columns,
   .decision-metrics,
@@ -3234,7 +2284,6 @@ select {
 }
 
 @media (max-width: 920px) {
-  .topbar,
   .decision-header,
   .mini-header,
   .record-card-head,
@@ -3242,15 +2291,6 @@ select {
   .scenario-compare-head {
     flex-direction: column;
     align-items: flex-start;
-  }
-
-  .content-area {
-    padding: 18px 14px 28px;
-  }
-
-  .topbar {
-    height: auto;
-    padding: 16px 14px;
   }
 }
 </style>

@@ -75,10 +75,23 @@ function buildScenarioExplanation(
   margins,
   governmentProtection,
   validity,
+  phase1Result,
+  policyContext,
 ) {
   const phrases = [];
   if (scenario.termExtensionYears > 0) {
-    phrases.push(`term extended ${scenario.termExtensionYears} years`);
+    const pathNames = [
+      ...new Set(
+        phase1Result.scenarioLoans.map((loan) =>
+          loan.servicingPath === "reamortization"
+            ? "reamortization"
+            : "rescheduling",
+        ),
+      ),
+    ];
+    phrases.push(
+      `${pathNames.join(" and ")} applied for ${scenario.termExtensionYears} years`,
+    );
   }
   if (scenario.rateReductionPercent > 0) {
     phrases.push(
@@ -117,6 +130,9 @@ function buildScenarioExplanation(
     `debt margin reserve ${toCurrency(scenario.marginTarget * 100)}%`,
     `coverage ratio ${governmentProtection.coverageRatio}`,
   );
+  if (policyContext.eligibility.nonEssentialAssetsNeedReview) {
+    phrases.push("non-essential asset review considered");
+  }
 
   return `${validity}. ${phrases.join(', ')}.`;
 }
@@ -127,11 +143,39 @@ function validateScenario(
   margins,
   governmentProtection,
   policyContext,
+  phase1Result,
 ) {
-  const reasons = [];
+  const reasons = [...policyContext.eligibility.gateReasons];
   if (margins.firstYearAvailable < margins.firstYearPaymentTotal) {
     reasons.push(
       `first-year payment ${toCurrency(margins.firstYearPaymentTotal)} exceeds usable cash ${toCurrency(margins.firstYearAvailable)} after ${scenario.marginTarget * 100}% debt margin reserve`,
+    );
+  }
+  if (
+    scenario.rateReductionPercent > 0 &&
+    Object.values(phase1Result.constraints.rateReductionEligibleByLoan).some(
+      (eligible) => !eligible,
+    )
+  ) {
+    reasons.push(
+      "Limited resource eligibility is required before interest rate reduction can be used on all selected loans.",
+    );
+  }
+  if (scenario.deferralYears > 0 && !phase1Result.constraints.deferralAllowed) {
+    reasons.push(...phase1Result.constraints.deferralViolations);
+  }
+  if (
+    scenario.consolidateLoans &&
+    !phase1Result.constraints.consolidationAllowed
+  ) {
+    reasons.push(...phase1Result.constraints.consolidationViolations);
+  }
+  if (
+    scenario.writedownAmount > 0 &&
+    policyContext.eligibility.nonEssentialAssetsCanCureDelinquency
+  ) {
+    reasons.push(
+      "Writedown should not be considered before non-essential assets are applied to delinquency.",
     );
   }
   if (
@@ -181,6 +225,7 @@ function runPhase3Optimizer(
     phase1Result.margins,
     phase2Result,
     policyContext,
+    phase1Result,
   );
   const scoring = scoreScenario(
     phase1Result.margins,
@@ -235,10 +280,14 @@ function runPhase3Optimizer(
       rejectionReasons.length === 0
         ? 'Scenario is feasible'
         : 'Scenario is rejected',
+      phase1Result,
+      policyContext,
     ),
     rejectionReason: rejectionReasons.join('; '),
     phaseOutputs: {
       feasibility: phase1Result.feasibility,
+      constraints: phase1Result.constraints,
+      eligibility: policyContext.eligibility,
       governmentProtection: {
         writedownVsNrvRequired: phase2Result.writedownVsNrvRequired,
         pvVsNrvTest: phase2Result.pvVsNrvTest,

@@ -63,6 +63,7 @@ function evaluateCase(payload, activeConfig = defaultConfig) {
         recommended: recommended ? 1 : 0,
       },
       countyPolicy: policyContext.countyDefaults,
+      eligibility: policyContext.eligibility,
       restructureWithoutWritedownFound: baseValid.some(
         (scenario) => scenario.scenario.writedownAmount === 0 && !scenario.scenario.liquidateLoan,
       ),

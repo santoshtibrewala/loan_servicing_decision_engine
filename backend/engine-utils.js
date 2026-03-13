@@ -18,6 +18,16 @@ function clamp(value, min, max) {
   return Math.min(Math.max(value, min), max);
 }
 
+function differenceInDays(startDate, endDate) {
+  if (!startDate || !endDate) {
+    return null;
+  }
+  const start = new Date(startDate);
+  const end = new Date(endDate);
+  const diff = end.getTime() - start.getTime();
+  return Math.floor(diff / (1000 * 60 * 60 * 24));
+}
+
 function computeAnnuityPayment(principal, annualRate, years) {
   if (principal <= 0 || years <= 0) {
     return 0;
@@ -63,6 +73,94 @@ function normalizePayload(input = {}) {
   return merged;
 }
 
+function evaluateEligibilityContext(input, activeConfig = defaultConfig) {
+  const rules = activeConfig.policy.servicingRules ?? {};
+  const caseData = input.case ?? {};
+  const timingDays = differenceInDays(
+    caseData.noticeOfDelinquencyDate,
+    caseData.completedApplicationDate,
+  );
+  const totalDelinquent = sum(
+    input.existingLoans.map((loan) => Number(loan.delinquentAmountDue ?? 0)),
+  );
+  const distressSatisfied =
+    Number(caseData.daysPastDue ?? 0) >= (rules.delinquencyDaysThreshold ?? 90) ||
+    caseData.financiallyDistressed === true;
+  const timelyApplicationSatisfied =
+    caseData.applicationComplete !== false &&
+    (timingDays === null || timingDays <= (rules.applicationWindowDays ?? 60));
+  const nonEssentialAssetsNeedReview =
+    caseData.nonEssentialAssetsAvailable === true &&
+    Number(caseData.nonEssentialAssetLiquidationValue ?? 0) > 0;
+  const nonEssentialAssetsCanCureDelinquency =
+    nonEssentialAssetsNeedReview &&
+    Number(caseData.nonEssentialAssetLiquidationValue ?? 0) >= totalDelinquent;
+
+  const checks = {
+    goodFaithSatisfied:
+      rules.requireGoodFaith === false || caseData.goodFaith === true,
+    applicationCompleteSatisfied:
+      rules.requireApplicationComplete === false ||
+      caseData.applicationComplete !== false,
+    timelyApplicationSatisfied,
+    distressSatisfied:
+      rules.requireDistressOrDelinquency === false || distressSatisfied,
+    distressCauseSatisfied:
+      rules.requireBeyondControlDistressCause === false ||
+      Boolean(caseData.distressCause),
+    cropInsuranceSatisfied:
+      rules.blockForCropInsuranceViolation === false ||
+      caseData.cropInsuranceViolation !== true,
+    nonMonetaryDefaultSatisfied:
+      rules.requireNonMonetaryDefaultResolution === false ||
+      caseData.nonMonetaryDefault !== true,
+  };
+
+  const gateReasons = [];
+  const warnings = [];
+  if (!checks.goodFaithSatisfied) {
+    gateReasons.push("Borrower did not satisfy the good-faith requirement.");
+  }
+  if (!checks.applicationCompleteSatisfied) {
+    gateReasons.push("Primary servicing application is not complete.");
+  }
+  if (!checks.timelyApplicationSatisfied) {
+    gateReasons.push(
+      `Completed application was submitted outside the ${rules.applicationWindowDays ?? 60}-day servicing window.`,
+    );
+  }
+  if (!checks.distressSatisfied) {
+    gateReasons.push(
+      `Borrower is not ${rules.delinquencyDaysThreshold ?? 90}+ days past due and did not indicate financial distress.`,
+    );
+  }
+  if (!checks.distressCauseSatisfied) {
+    gateReasons.push("Distress cause was not identified.");
+  }
+  if (!checks.cropInsuranceSatisfied) {
+    gateReasons.push("Crop insurance compliance issue blocks servicing eligibility.");
+  }
+  if (!checks.nonMonetaryDefaultSatisfied) {
+    gateReasons.push("Non-monetary default must be resolved before servicing.");
+  }
+  if (nonEssentialAssetsCanCureDelinquency) {
+    warnings.push(
+      "Non-essential asset liquidation appears sufficient to cure delinquency before writedown relief.",
+    );
+  }
+
+  return {
+    checks,
+    totalDelinquent: toCurrency(totalDelinquent),
+    applicationWindowDays: timingDays,
+    nonEssentialAssetsNeedReview,
+    nonEssentialAssetsCanCureDelinquency,
+    overallEligible: gateReasons.length === 0,
+    gateReasons,
+    warnings,
+  };
+}
+
 function resolvePolicyContext(input, activeConfig = defaultConfig) {
   const proposedDate = input.case.proposedServicingDate;
   const state = input.case.state;
@@ -78,6 +176,8 @@ function resolvePolicyContext(input, activeConfig = defaultConfig) {
     collateralRecoveryAssumptions: activeConfig.policy.collateralRecoveryAssumptions,
     maxTerms: activeConfig.policy.maxTerms,
     loanLimits: activeConfig.policy.loanLimits,
+    servicingRules: activeConfig.policy.servicingRules ?? {},
+    eligibility: evaluateEligibilityContext(input, activeConfig),
   };
 }
 
@@ -114,6 +214,8 @@ export {
   clone,
   computeAnnuityPayment,
   defaultConfig,
+  differenceInDays,
+  evaluateEligibilityContext,
   getAdjustedBalance,
   getLoanRate,
   normalizePayload,
