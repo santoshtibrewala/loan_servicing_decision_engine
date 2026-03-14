@@ -1,5 +1,6 @@
 <script setup>
 import AccordionPanel from './AccordionPanel.vue';
+import FormattedNumberInput from './FormattedNumberInput.vue';
 
 // Liens contain two related repeating groups, so the component owns the layout
 // while App.vue retains only the add/remove handlers.
@@ -77,7 +78,7 @@ const emit = defineEmits([
             <div class="grid gap-[14px] md:grid-cols-2">
               <label class="grid gap-1.5 font-semibold text-[#293c4f]">Property ID<input v-model="lien.propertyId" class="w-full rounded-[10px] border-2 border-[#0e416a] bg-white px-[14px] py-3 text-[#17334d]" /></label>
               <label class="grid gap-1.5 font-semibold text-[#293c4f]">Creditor<input v-model="lien.creditorName" class="w-full rounded-[10px] border-2 border-[#0e416a] bg-white px-[14px] py-3 text-[#17334d]" /></label>
-              <label class="grid gap-1.5 font-semibold text-[#293c4f]">Prior debt<input v-model.number="lien.totalDebtPriorToFsaLien" type="number" min="0" class="w-full rounded-[10px] border-2 border-[#0e416a] bg-white px-[14px] py-3 text-[#17334d]" /></label>
+              <label class="grid gap-1.5 font-semibold text-[#293c4f]">Prior debt<FormattedNumberInput v-model="lien.totalDebtPriorToFsaLien" kind="amount" :min="0" class="w-full rounded-[10px] border-2 border-[#0e416a] bg-white px-[14px] py-3 text-[#17334d]" /></label>
               <label class="grid gap-1.5 font-semibold text-[#293c4f]">Filing date<input v-model="lien.filingDate" type="date" class="w-full rounded-[10px] border-2 border-[#0e416a] bg-white px-[14px] py-3 text-[#17334d]" /></label>
             </div>
           </article>

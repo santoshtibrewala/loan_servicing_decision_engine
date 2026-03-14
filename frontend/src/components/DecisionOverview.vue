@@ -27,6 +27,10 @@ function outcomeTone(recommendation) {
   }
   return 'text-[#0f1c2e]';
 }
+
+function metricTone(value) {
+  return Number(value ?? 0) < 0 ? 'text-[#b42318]' : 'text-[#0f7b3d]';
+}
 </script>
 
 <template>
@@ -82,7 +86,7 @@ function outcomeTone(recommendation) {
       </div>
       <div class="rounded-[14px] bg-[#eef4f9] p-4">
         <span class="block text-[0.86rem] font-[550] text-[#293c4f]">Operating income vs recommended payment</span>
-        <strong class="text-[1.1rem] text-[#123b60]">{{ currencyCompact(recommendedPaymentGap) }}</strong>
+        <strong class="text-[1.1rem]" :class="metricTone(recommendedPaymentGap)">{{ currencyCompact(recommendedPaymentGap) }}</strong>
       </div>
     </div>
   </article>

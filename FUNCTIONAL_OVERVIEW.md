@@ -24,17 +24,21 @@ The lender reviews or enters information in these main sections:
 - liens and security
 - policy settings
 
-The current application also includes two case presets:
+The current application includes five case presets:
 
 - `Case 1 - Iowa Farm Ownership`
 - `Case 2 - Ranch Land Writedown`
 - `Case 3 - Multi-Loan Multi-Collateral`
+- `Case 4 - Kansas Delinquent Loan Consolidation`
+- `Case 5 - Texas Multi-Loan Consolidation Relief`
 
 These presets are meant to demonstrate two different recommendation patterns:
 
 - a restructure without writedown
 - a writedown-driven path when a standard restructure is not enough
 - a multi-loan, multi-collateral case where different loans can receive different actions inside the same recommendation
+- a two-loan delinquency case where consolidation becomes the first feasible servicing path
+- a three-loan delinquency case where consolidation improves servicing capacity across multiple borrower loans
 
 The lender can also adjust the debt margin reserve. This is the amount of cash that should be held back instead of being fully committed to debt service.
 
@@ -48,6 +52,7 @@ A-STAR can test restructuring paths such as:
 - deferring payments
 - consolidating loans
 - applying writedown
+- buying out the loan at current market value
 - liquidating a loan
 
 The engine first tries to find a valid restructure without writedown. If it can do that, writedown versus net recovery analysis is not needed for the recommended path. If it cannot, the engine moves into writedown or liquidation analysis.
@@ -157,6 +162,49 @@ The multi-loan preset still shows different actions inside one case:
 
 This happens because the farm ownership loan still has reamortization room, while the operating loan does not.
 
+## Consolidation use cases
+
+The application now includes two consolidation-focused presets for delinquent borrower loans.
+
+### Case 4: Kansas Delinquent Loan Consolidation
+
+This preset has:
+
+- two delinquent operating loans
+- shared chattel collateral
+- matching first-lien positions
+- no limited-resource rate eligibility
+
+Why consolidation helps:
+
+- the borrower does not have enough usable cash to carry the best non-consolidated path
+- consolidation applies the engine's consolidation adjustment and produces the first feasible payment structure
+
+Current seeded recommendation:
+
+- `OL-501: Reschedule 6 Years, Rate -0.25%, Consolidate`
+- `OL-502: Reschedule 5 Years, Rate -0.25%, Consolidate`
+
+### Case 5: Texas Multi-Loan Consolidation Relief
+
+This preset has:
+
+- two delinquent operating loans
+- one delinquent emergency loan
+- shared chattel collateral
+- matching lien positions across all included loans
+
+Why consolidation helps:
+
+- the borrower can service the debt, but consolidation improves affordability enough to outrank the non-consolidated alternatives
+- the consolidation result creates one borrower-friendly servicing path across all three loans
+
+Current seeded recommendation:
+
+- `OL-611: Reschedule 6 Years, Rate -0.25%, Consolidate`
+- `OL-612: Reschedule 5 Years, Rate -0.25%, Consolidate`
+- `EM-613: Reschedule 7 Years, Rate -0.25%, Consolidate`
+
 ## Writedown case example
 
 The writedown preset now demonstrates an important USDA-style distinction:
@@ -174,6 +222,23 @@ This shows the current engine behavior:
 1. try restructure first,
 2. only move into writedown when restructure alone is not feasible,
 3. compare writedown against recovery logic.
+
+## Buyout / CMV path
+
+A-STAR now includes a simplified `Buyout At CMV` path.
+
+In plain terms, this means:
+
+- the engine estimates a current-market-value-style buyout amount from collateral value less prior liens
+- it checks whether the borrower has enough identified buyout funds available
+- if normal restructuring does not work, the buyout path can rank as an alternative
+
+This is still a PoC approximation, not a full USDA buyout implementation, but it gives the lender a visible comparison point between:
+
+- restructure
+- writedown
+- buyout
+- liquidation
 
 ## Collateral and recovery example
 

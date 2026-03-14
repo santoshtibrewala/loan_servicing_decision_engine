@@ -1,5 +1,6 @@
 <script setup>
 import AccordionPanel from './AccordionPanel.vue';
+import FormattedNumberInput from './FormattedNumberInput.vue';
 import { useFormatters } from '../composables/useFormatters';
 
 // Collateral editing is isolated because recoverable value and future asset
@@ -58,11 +59,11 @@ const { currencyCompact } = useFormatters();
           <label class="grid gap-1.5 font-semibold text-[#293c4f]">Property ID<input v-model="item.propertyId" class="w-full rounded-[10px] border-2 border-[#0e416a] bg-white px-[14px] py-3 text-[#17334d]" /></label>
           <label class="grid gap-1.5 font-semibold text-[#293c4f]">Property type<select v-model="item.propertyType" class="w-full rounded-[10px] border-2 border-[#0e416a] bg-white px-[14px] py-3 text-[#17334d]"><option v-for="option in collateralTypeOptions" :key="option.value" :value="option.value">{{ option.label }}</option></select></label>
           <label class="grid gap-1.5 font-semibold text-[#293c4f]">Description<input v-model="item.description" class="w-full rounded-[10px] border-2 border-[#0e416a] bg-white px-[14px] py-3 text-[#17334d]" /></label>
-          <label class="grid gap-1.5 font-semibold text-[#293c4f]">Market value<input v-model.number="item.marketValue" type="number" min="0" class="w-full rounded-[10px] border-2 border-[#0e416a] bg-white px-[14px] py-3 text-[#17334d]" /></label>
-          <label class="grid gap-1.5 font-semibold text-[#293c4f]">Recoverable value<input v-model.number="item.recoverableValue" type="number" min="0" class="w-full rounded-[10px] border-2 border-[#0e416a] bg-white px-[14px] py-3 text-[#17334d]" /></label>
-          <label class="grid gap-1.5 font-semibold text-[#293c4f]">Monthly income<input v-model.number="item.monthlyIncome" type="number" min="0" class="w-full rounded-[10px] border-2 border-[#0e416a] bg-white px-[14px] py-3 text-[#17334d]" /></label>
-          <label class="grid gap-1.5 font-semibold text-[#293c4f]">Repair cost<input v-model.number="item.repairCost" type="number" min="0" class="w-full rounded-[10px] border-2 border-[#0e416a] bg-white px-[14px] py-3 text-[#17334d]" /></label>
-          <label class="grid gap-1.5 font-semibold text-[#293c4f]">Other expense<input v-model.number="item.otherExpenseCost" type="number" min="0" class="w-full rounded-[10px] border-2 border-[#0e416a] bg-white px-[14px] py-3 text-[#17334d]" /></label>
+          <label class="grid gap-1.5 font-semibold text-[#293c4f]">Market value<FormattedNumberInput v-model="item.marketValue" kind="amount" :min="0" class="w-full rounded-[10px] border-2 border-[#0e416a] bg-white px-[14px] py-3 text-[#17334d]" /></label>
+          <label class="grid gap-1.5 font-semibold text-[#293c4f]">Recoverable value<FormattedNumberInput v-model="item.recoverableValue" kind="amount" :min="0" class="w-full rounded-[10px] border-2 border-[#0e416a] bg-white px-[14px] py-3 text-[#17334d]" /></label>
+          <label class="grid gap-1.5 font-semibold text-[#293c4f]">Monthly income<FormattedNumberInput v-model="item.monthlyIncome" kind="amount" :min="0" class="w-full rounded-[10px] border-2 border-[#0e416a] bg-white px-[14px] py-3 text-[#17334d]" /></label>
+          <label class="grid gap-1.5 font-semibold text-[#293c4f]">Repair cost<FormattedNumberInput v-model="item.repairCost" kind="amount" :min="0" class="w-full rounded-[10px] border-2 border-[#0e416a] bg-white px-[14px] py-3 text-[#17334d]" /></label>
+          <label class="grid gap-1.5 font-semibold text-[#293c4f]">Other expense<FormattedNumberInput v-model="item.otherExpenseCost" kind="amount" :min="0" class="w-full rounded-[10px] border-2 border-[#0e416a] bg-white px-[14px] py-3 text-[#17334d]" /></label>
         </div>
       </article>
     </div>

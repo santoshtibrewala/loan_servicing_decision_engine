@@ -23,6 +23,7 @@ import PolicySnapshotSection from './components/PolicySnapshotSection.vue';
 import PreDecisionBriefing from './components/PreDecisionBriefing.vue';
 import RankedAlternativesPanel from './components/RankedAlternativesPanel.vue';
 import RecommendedActionsPanel from './components/RecommendedActionsPanel.vue';
+import ScoreContributionCard from './components/ScoreContributionCard.vue';
 import ScenarioComparisonGrid from './components/ScenarioComparisonGrid.vue';
 import { useFormatters } from './composables/useFormatters';
 import { useWorksheetExport } from './composables/useWorksheetExport';
@@ -230,6 +231,17 @@ const briefingSections = computed(() => [
         label: 'State / County',
         value: `${model.case.state || '--'} / ${model.case.county || '--'}`,
       },
+      {
+        label: 'Days past due',
+        value: `${Number(model.case.daysPastDue ?? 0)}`,
+        tone:
+          Number(model.case.daysPastDue ?? 0) >=
+          Number(
+            policySummary.value.servicingRules?.delinquencyDaysThreshold ?? 90,
+          )
+            ? 'danger'
+            : 'neutral',
+      },
     ],
   },
   {
@@ -239,6 +251,7 @@ const briefingSections = computed(() => [
       {
         label: 'Current annual payment',
         value: currency(currentFirstYearPaymentAmount.value),
+        tone: 'neutral',
       },
       {
         label: 'Total outstanding',
@@ -251,6 +264,7 @@ const briefingSections = computed(() => [
             0,
           ),
         ),
+        tone: 'neutral',
       },
     ],
   },
@@ -265,7 +279,11 @@ const briefingSections = computed(() => [
         label: 'Application completed',
         value: formatDate(model.case.completedApplicationDate),
       },
-      { label: 'Good faith', value: model.case.goodFaith ? 'Yes' : 'No' },
+      {
+        label: 'Good faith',
+        value: model.case.goodFaith ? 'Yes' : 'No',
+        tone: model.case.goodFaith ? 'success' : 'danger',
+      },
     ],
   },
   {
@@ -274,14 +292,23 @@ const briefingSections = computed(() => [
       {
         label: 'Available cash',
         value: currencyCompact(model.cashFlow.firstYear.balanceAvailable),
+        tone:
+          Number(model.cashFlow.firstYear.balanceAvailable ?? 0) < 0
+            ? 'danger'
+            : 'success',
       },
       {
         label: 'Operating expense',
         value: currencyCompact(model.cashFlow.firstYear.operatingExpense),
+        tone: 'neutral',
       },
       {
         label: 'Non-agency debt and taxes',
         value: currencyCompact(model.cashFlow.firstYear.nonAgencyDebtAndTaxes),
+        tone:
+          Number(model.cashFlow.firstYear.nonAgencyDebtAndTaxes ?? 0) > 0
+            ? 'danger'
+            : 'success',
       },
     ],
   },
@@ -291,14 +318,17 @@ const briefingSections = computed(() => [
       {
         label: 'Operating income',
         value: currencyCompact(firstYearOperatingIncome.value),
+        tone: firstYearOperatingIncome.value < 0 ? 'danger' : 'success',
       },
       {
         label: 'Current payment gap',
         value: currencyCompact(currentPaymentGap.value),
+        tone: currentPaymentGap.value < 0 ? 'danger' : 'success',
       },
       {
         label: 'Debt margin reserve',
         value: `${Number(model.case.debtMarginPercent ?? 0).toFixed(0)}%`,
+        tone: 'neutral',
       },
     ],
   },
@@ -329,10 +359,12 @@ const briefingSections = computed(() => [
       {
         label: 'Recommended annual payment',
         value: currencyCompact(recommendedFirstYearPaymentAmount.value),
+        tone: 'neutral',
       },
       {
         label: 'Remaining cash flow',
         value: currencyCompact(recommendedPaymentGap.value),
+        tone: recommendedPaymentGap.value < 0 ? 'danger' : 'success',
       },
     ],
   },
@@ -343,10 +375,12 @@ const briefingSections = computed(() => [
       {
         label: 'Market value',
         value: currencyCompact(totalCollateralValue.value),
+        tone: totalCollateralValue.value <= 0 ? 'danger' : 'success',
       },
       {
         label: 'Recoverable value',
         value: currencyCompact(totalRecoverableValue.value),
+        tone: totalRecoverableValue.value <= 0 ? 'danger' : 'success',
       },
     ],
   },
@@ -359,10 +393,23 @@ const briefingSections = computed(() => [
             value: currencyCompact(
               recommendation.value.governmentProtectionMetrics.netRecoveryValue,
             ),
+            tone:
+              Number(
+                recommendation.value.governmentProtectionMetrics
+                  .netRecoveryValue,
+              ) <= 0
+                ? 'danger'
+                : 'success',
           },
           {
             label: 'Coverage ratio',
             value: `${recommendation.value.governmentProtectionMetrics.coverageRatio}`,
+            tone:
+              Number(
+                recommendation.value.governmentProtectionMetrics.coverageRatio,
+              ) < 1
+                ? 'danger'
+                : 'success',
           },
         ]
       : [{ label: 'Status', value: 'Available after evaluation.' }],
@@ -433,6 +480,9 @@ const calculationSummaryRows = computed(() => {
   const netRecoveryValue = Number(
     scenario.governmentProtectionMetrics.netRecoveryValue ?? 0,
   );
+  const cmvBuyoutValue = Number(
+    scenario.governmentProtectionMetrics.cmvBuyoutValue ?? 0,
+  );
   const netRecoveryLoss = Math.max(totalOutstanding - netRecoveryValue, 0);
   const scoringWeights = policySummary.value.scoringWeights ?? {};
   const scoreComponents = scenario.scoreComponents ?? {};
@@ -444,72 +494,87 @@ const calculationSummaryRows = computed(() => {
       metric: 'Adjusted operating income',
       formula: 'Balance Available - Non-Agency Debt And Taxes',
       value: currency(adjustedBalance),
+      tone: adjustedBalance < 0 ? 'danger' : 'success',
     },
     {
       category: 'Cash capacity',
       metric: 'Debt margin reserve',
       formula: `${(marginPercent * 100).toFixed(0)}% x ${currency(adjustedBalance)}`,
       value: currency(reservedCash),
+      tone: 'neutral',
     },
     {
       category: 'Cash capacity',
       metric: 'Usable cash for debt service',
       formula: `${currency(adjustedBalance)} - ${currency(reservedCash)}`,
       value: currency(usableCash),
+      tone: usableCash < 0 ? 'danger' : 'success',
     },
     {
       category: 'Payment comparison',
       metric: 'Total outstanding loan',
       formula: 'Principal + Accrued Interest Across All Loans',
       value: currency(totalOutstanding),
+      tone: 'neutral',
     },
     {
       category: 'Payment comparison',
       metric: 'Current annual payment',
       formula: 'Sum Of Current Loan Payments',
       value: currency(baseline.firstYearRepayment),
+      tone: 'neutral',
     },
     {
       category: 'Payment comparison',
       metric: 'Recommended annual payment',
       formula: 'Sum Of Recommended Loan Payments',
       value: currency(recommendedPayment),
+      tone: 'neutral',
     },
     {
       category: 'Payment comparison',
       metric: 'Annual payment reduction',
       formula: `${currency(baseline.firstYearRepayment)} - ${currency(recommendedPayment)}`,
       value: `${currency(paymentReduction)} (${percent(paymentReductionPercent)})`,
+      tone: paymentReduction < 0 ? 'danger' : 'success',
     },
     {
       category: 'Cash flow result',
       metric: 'Cash retained after payment',
       formula: `${currency(usableCash)} - ${currency(recommendedPayment)}`,
       value: currency(usableCash - recommendedPayment),
+      tone: usableCash - recommendedPayment < 0 ? 'danger' : 'success',
     },
     {
       category: 'Government protection',
       metric: 'Projected value',
       formula: 'Discounted Payment Stream',
       value: currency(scenario.governmentProtectionMetrics.projectedValue),
+      tone: 'neutral',
     },
     {
       category: 'Government protection',
       metric: 'Net recovery value',
       formula: 'Recovery Value - Liens - Liquidation Costs',
       value: currency(netRecoveryValue),
+      tone: netRecoveryValue <= 0 ? 'danger' : 'success',
     },
     {
       category: 'Government protection',
       metric: 'Coverage ratio',
       formula: `${currency(scenario.governmentProtectionMetrics.projectedValue)} / ${currency(netRecoveryValue)}`,
       value: `${scenario.governmentProtectionMetrics.coverageRatio.toFixed(2)}x`,
+      tone:
+        scenario.governmentProtectionMetrics.coverageRatio < 1
+          ? 'danger'
+          : 'success',
     },
     {
       category: 'Eligibility gate',
       metric: 'Borrower eligibility status',
       formula: 'Primary servicing gate checks',
       value: eligibility.overallEligible ? 'Passed' : 'Review required',
+      tone: eligibility.overallEligible ? 'success' : 'danger',
     },
     {
       category: 'Eligibility gate',
@@ -519,12 +584,19 @@ const calculationSummaryRows = computed(() => {
         eligibility.applicationWindowDays == null
           ? '--'
           : `${eligibility.applicationWindowDays} days`,
+      tone:
+        eligibility.applicationWindowDays != null &&
+        eligibility.applicationWindowDays >
+          (policySummary.value.servicingRules?.applicationWindowDays ?? 60)
+          ? 'danger'
+          : 'neutral',
     },
     {
       category: 'Eligibility gate',
       metric: 'Total delinquent due',
       formula: 'Sum Of Delinquent Amount Due Across Loans',
       value: currency(eligibility.totalDelinquent ?? 0),
+      tone: Number(eligibility.totalDelinquent ?? 0) > 0 ? 'danger' : 'success',
     },
   ];
 
@@ -535,12 +607,14 @@ const calculationSummaryRows = computed(() => {
         metric: 'Recommended writedown',
         formula: 'Scenario Writedown Amount',
         value: currency(writedownAmount),
+        tone: 'danger',
       },
       {
         category: 'Writedown vs recovery',
         metric: 'Net recovery loss',
         formula: `${currency(totalOutstanding)} - ${currency(netRecoveryValue)}`,
         value: currency(netRecoveryLoss),
+        tone: netRecoveryLoss > 0 ? 'danger' : 'success',
       },
       {
         category: 'Writedown vs recovery',
@@ -550,6 +624,34 @@ const calculationSummaryRows = computed(() => {
           writedownAmount <= netRecoveryLoss
             ? 'Within net recovery loss'
             : 'Above net recovery loss',
+        tone: writedownAmount <= netRecoveryLoss ? 'success' : 'danger',
+      },
+    );
+  }
+
+  if (scenario.scenario.buyoutAtCmv) {
+    rows.push(
+      {
+        category: 'Buyout path',
+        metric: 'CMV buyout value',
+        formula: 'Current Market Value Less Prior Liens',
+        value: currency(cmvBuyoutValue),
+        tone: 'danger',
+      },
+      {
+        category: 'Buyout path',
+        metric: 'Buyout funds available',
+        formula: 'Case Buyout Funds + Non-Essential Asset Liquidation Value',
+        value: currency(
+          Number(model.case.buyoutFundsAvailable ?? 0) +
+            Number(model.case.nonEssentialAssetLiquidationValue ?? 0),
+        ),
+        tone:
+          Number(model.case.buyoutFundsAvailable ?? 0) +
+            Number(model.case.nonEssentialAssetLiquidationValue ?? 0) <
+          cmvBuyoutValue
+            ? 'danger'
+            : 'success',
       },
     );
   }
@@ -560,36 +662,42 @@ const calculationSummaryRows = computed(() => {
       metric: 'Final scenario score',
       formula: 'Weighted sum of component scores',
       value: `${scenario.score.toFixed(2)}`,
+      tone: 'neutral',
     },
     {
       category: 'Scoring detail',
       metric: 'Feasibility weight x score',
       formula: `${percent(scoringWeights.feasibility)} x ${scoreComponents.feasibilityScore?.toFixed?.(2) ?? '--'}`,
       value: `${((scoringWeights.feasibility ?? 0) * (scoreComponents.feasibilityScore ?? 0)).toFixed(2)}`,
+      tone: 'neutral',
     },
     {
       category: 'Scoring detail',
       metric: 'Government protection weight x score',
       formula: `${percent(scoringWeights.governmentProtection)} x ${scoreComponents.governmentProtectionScore?.toFixed?.(2) ?? '--'}`,
       value: `${((scoringWeights.governmentProtection ?? 0) * (scoreComponents.governmentProtectionScore ?? 0)).toFixed(2)}`,
+      tone: 'neutral',
     },
     {
       category: 'Scoring detail',
       metric: 'Concession minimization weight x score',
       formula: `${percent(scoringWeights.concessionMinimization)} x ${scoreComponents.concessionMinimizationScore?.toFixed?.(2) ?? '--'}`,
       value: `${((scoringWeights.concessionMinimization ?? 0) * (scoreComponents.concessionMinimizationScore ?? 0)).toFixed(2)}`,
+      tone: 'neutral',
     },
     {
       category: 'Scoring detail',
       metric: 'Margin attainment weight x score',
       formula: `${percent(scoringWeights.marginAttainment)} x ${scoreComponents.marginAttainmentScore?.toFixed?.(2) ?? '--'}`,
       value: `${((scoringWeights.marginAttainment ?? 0) * (scoreComponents.marginAttainmentScore ?? 0)).toFixed(2)}`,
+      tone: 'neutral',
     },
     {
       category: 'Scoring detail',
       metric: 'Simplicity weight x score',
       formula: `${percent(scoringWeights.simplicity)} x ${scoreComponents.simplicityScore?.toFixed?.(2) ?? '--'}`,
       value: `${((scoringWeights.simplicity ?? 0) * (scoreComponents.simplicityScore ?? 0)).toFixed(2)}`,
+      tone: 'neutral',
     },
   );
 
@@ -610,6 +718,10 @@ const loanCalculationRows = computed(() =>
     paymentChange: currency(
       loan.currentFirstYearPayment - loan.recommendedFirstYearPayment,
     ),
+    paymentChangeTone:
+      loan.currentFirstYearPayment - loan.recommendedFirstYearPayment < 0
+        ? 'danger'
+        : 'success',
     actions: formatActions(loan.actions) || 'No Change',
   })),
 );
@@ -644,6 +756,12 @@ const policyCards = computed(() => {
           label: 'Writedown cap',
           value: currency(controls.writedownCapAmount ?? 0),
         },
+        {
+          label: 'CMV buyout path',
+          value: (controls.buyoutOptions ?? []).includes(true)
+            ? 'Enabled'
+            : 'Disabled',
+        },
       ],
     },
     {
@@ -670,6 +788,13 @@ const policyCards = computed(() => {
             rules.requireLimitedResourceEligibilityForRateReduction === false
               ? 'Open'
               : 'Limited Resource Eligible Only',
+        },
+        {
+          label: 'CMV funding gate',
+          value:
+            rules.requireBuyoutFundsForCmv === false
+              ? 'Informational'
+              : 'Funds Required',
         },
       ],
     },
@@ -717,6 +842,72 @@ const scoringMechanism = computed(() => [
   'Margin attainment rewards scenarios that preserve the target reserve while remaining feasible.',
   'Simplicity breaks ties in favor of fewer actions and less structural complexity.',
 ]);
+
+const scoreContributionItems = computed(() => {
+  if (!selectedScenario.value) {
+    return [];
+  }
+  const weights = policySummary.value.scoringWeights ?? {};
+  const components = selectedScenario.value.scoreComponents ?? {};
+  const rows = [
+    {
+      key: 'feasibility',
+      label: 'Feasibility',
+      rawScore: Number(components.feasibilityScore ?? 0),
+      weight: Number(weights.feasibility ?? 0),
+      tone: 'green',
+      explanation:
+        'Feasibility scores whether usable cash covers the proposed annual payment.Higher when the borrower can cover debt service with usable cash after the reserve.',
+    },
+    {
+      key: 'governmentProtection',
+      label: 'Government protection',
+      rawScore: Number(components.governmentProtectionScore ?? 0),
+      weight: Number(weights.governmentProtection ?? 0),
+      tone: 'blue',
+      explanation:
+        'Government protection scores the projected value against net recovery value and coverage floor. Higher when projected value and coverage compare well against recovery value.',
+    },
+    {
+      key: 'concessionMinimization',
+      label: 'Concession minimization',
+      rawScore: Number(components.concessionMinimizationScore ?? 0),
+      weight: Number(weights.concessionMinimization ?? 0),
+      tone: 'orange',
+      explanation:
+        'Concession minimization scores the scenario based on the need for writedowns, rate relief, and other concessions. Higher when the scenario needs less writedown, less rate relief, and fewer concessions.',
+    },
+    {
+      key: 'marginAttainment',
+      label: 'Margin attainment',
+      rawScore: Number(components.marginAttainmentScore ?? 0),
+      weight: Number(weights.marginAttainment ?? 0),
+      tone: 'green',
+      explanation:
+        'Margin attainment scores whether the scenario preserves the target reserve while staying feasible. Higher when the scenario preserves the target reserve while staying feasible.',
+    },
+    {
+      key: 'simplicity',
+      label: 'Simplicity',
+      rawScore: Number(components.simplicityScore ?? 0),
+      weight: Number(weights.simplicity ?? 0),
+      tone: 'blue',
+      explanation:
+        'Simplicity scores the scenario based on the number of structural actions and operational complexity. Higher when the path uses fewer structural actions and is easier to explain operationally.',
+    },
+  ];
+
+  return rows.map((row) => {
+    const contribution = row.rawScore * row.weight;
+    return {
+      ...row,
+      contribution,
+      weightLabel: percent(row.weight),
+      barWidth: Math.max(6, Math.min(100, contribution * 100)),
+      summary: `${row.label} contributed ${contribution.toFixed(2)} to the final score.`,
+    };
+  });
+});
 
 // Pipeline counts explain how many candidate paths were generated and how many
 // survived the recommendation screens.
@@ -1031,6 +1222,9 @@ function scenarioPolicyFlags(scenario) {
     (scenario.phaseOutputs?.eligibility?.gateReasons?.length ?? 0) > 0
   ) {
     flags.push('Eligibility Gate Failed');
+  }
+  if (scenario.scenario?.buyoutAtCmv) {
+    flags.push('CMV Buyout');
   }
   if (scenario.governmentProtectionMetrics?.writedownVsNrvRequired) {
     flags.push('Writedown Required');
@@ -1385,61 +1579,13 @@ watch(
             @print="exportWorksheet"
           />
 
-          <section
-            class="mb-5 rounded-[18px] border border-brand-line bg-brand-panel p-6 shadow-[0_14px_34px_rgba(8,45,76,0.06)]"
-          >
-            <header
-              class="mb-4 flex flex-col gap-2 md:flex-row md:items-baseline md:justify-between"
-            >
-              <div>
-                <span
-                  class="mb-2 block text-[0.78rem] font-bold uppercase tracking-[0.11em] text-[#0c4a76]"
-                >
-                  Scoring
-                </span>
-                <h3 class="m-0 text-[1.2rem] font-bold text-[#0f1c2e]">
-                  How recommendation scores are built
-                </h3>
-              </div>
-              <span class="text-[0.86rem] font-[550] text-[#293c4f]">
-                Weighted ranking applied after eligibility and protection checks
-              </span>
-            </header>
-
-            <div class="grid gap-4 xl:grid-cols-[0.9fr_1.1fr]">
-              <div class="grid gap-3">
-                <div
-                  v-for="row in scoringSummaryRows"
-                  :key="`main-${row.label}`"
-                  class="flex items-center justify-between rounded-[14px] border border-[#d4dee7] bg-[#eef4f9] px-4 py-3"
-                >
-                  <strong class="text-[#143b5f]">{{ row.label }}</strong>
-                  <span class="text-[0.98rem] font-bold text-[#0f1c2e]">
-                    {{ row.value }}
-                  </span>
-                </div>
-              </div>
-
-              <div
-                class="rounded-[14px] border border-[#d4dee7] bg-[#f7fafc] p-4"
-              >
-                <div class="grid gap-3">
-                  <div
-                    v-for="line in scoringMechanism"
-                    :key="line"
-                    class="flex gap-3 border-t border-[#d6e0e9] pt-3 first:border-t-0 first:pt-0"
-                  >
-                    <span
-                      class="mt-1 inline-block h-2.5 w-2.5 flex-none rounded-full bg-[#0c4a76]"
-                    ></span>
-                    <span class="text-[0.95rem] leading-6 text-[#294051]">
-                      {{ line }}
-                    </span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </section>
+          <ScoreContributionCard
+            v-if="selectedScenario"
+            :items="scoreContributionItems"
+            :final-score="Number(selectedScenario.score ?? 0)"
+            :scoring-summary-rows="scoringSummaryRows"
+            :scoring-mechanism="scoringMechanism"
+          />
 
           <!-- Editable case setup remains below the recommendation area so the
                lender can iterate on assumptions and rerun the engine. -->

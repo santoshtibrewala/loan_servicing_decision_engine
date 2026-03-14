@@ -1,5 +1,6 @@
 <script setup>
 import AccordionPanel from './AccordionPanel.vue';
+import FormattedNumberInput from './FormattedNumberInput.vue';
 
 // Case-level controls stay grouped together because these inputs often change
 // together when a lender reviews borrower details after choosing a preset.
@@ -58,7 +59,14 @@ const emit = defineEmits(['toggle']);
       </label>
       <label class="grid gap-1.5 font-semibold text-[#293c4f]">
         Debt margin (%)
-        <input v-model.number="model.case.debtMarginPercent" type="number" min="0" max="50" class="w-full rounded-[10px] border-2 border-[#0e416a] bg-white px-[14px] py-3 text-[#17334d]" />
+        <FormattedNumberInput
+          v-model="model.case.debtMarginPercent"
+          kind="percent"
+          :decimals="0"
+          :min="0"
+          :max="50"
+          class="w-full rounded-[10px] border-2 border-[#0e416a] bg-white px-[14px] py-3 text-[#17334d]"
+        />
       </label>
       <label class="grid gap-1.5 font-semibold text-[#293c4f]">
         First payment due
@@ -91,7 +99,21 @@ const emit = defineEmits(['toggle']);
       </label>
       <label class="grid gap-1.5 font-semibold text-[#293c4f]">
         Non-essential asset liquidation value
-        <input v-model.number="model.case.nonEssentialAssetLiquidationValue" type="number" min="0" class="w-full rounded-[10px] border-2 border-[#0e416a] bg-white px-[14px] py-3 text-[#17334d]" />
+        <FormattedNumberInput
+          v-model="model.case.nonEssentialAssetLiquidationValue"
+          kind="amount"
+          :min="0"
+          class="w-full rounded-[10px] border-2 border-[#0e416a] bg-white px-[14px] py-3 text-[#17334d]"
+        />
+      </label>
+      <label class="grid gap-1.5 font-semibold text-[#293c4f]">
+        Buyout funds available
+        <FormattedNumberInput
+          v-model="model.case.buyoutFundsAvailable"
+          kind="amount"
+          :min="0"
+          class="w-full rounded-[10px] border-2 border-[#0e416a] bg-white px-[14px] py-3 text-[#17334d]"
+        />
       </label>
     </div>
 

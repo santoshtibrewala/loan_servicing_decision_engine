@@ -43,6 +43,7 @@ test("scenario generation respects configured cap", () => {
   const scenarios = generateScenarioCombos(config);
   assert.equal(baseScenarios.some((scenario) => scenario.rateReductionPercent > 0), true);
   assert.equal(fallbackScenarios.some((scenario) => scenario.liquidateLoan), true);
+  assert.equal(fallbackScenarios.some((scenario) => scenario.buyoutAtCmv), true);
   assert.equal(scenarios.length >= config.scenarioControls.maxScenarioCount, true);
 });
 
@@ -100,6 +101,56 @@ test("third preset supports multi-loan and multi-collateral recommendations", ()
   assert.equal(config.casePresets[2].data.collateral.length, 3);
 });
 
+test("fourth preset recommends consolidation for delinquent operating loans", () => {
+  const result = evaluateCase(config.casePresets[3].data, config);
+
+  assert.ok(result.recommendedScenarioId);
+  assert.equal(result.scenarios[0].status, "valid and recommendable");
+  assert.equal(result.scenarios[0].scenario.consolidateLoans, true);
+  assert.deepEqual(result.scenarios[0].paymentScheduleByLoan[0].servicingActions, [
+    "reschedule 6 years",
+    "rate -0.25%",
+    "consolidate",
+  ]);
+  assert.deepEqual(result.scenarios[0].paymentScheduleByLoan[1].servicingActions, [
+    "reschedule 5 years",
+    "rate -0.25%",
+    "consolidate",
+  ]);
+});
+
+test("fifth preset recommends consolidation across operating and emergency loans", () => {
+  const result = evaluateCase(config.casePresets[4].data, config);
+
+  assert.ok(result.recommendedScenarioId);
+  assert.equal(result.scenarios[0].status, "valid and recommendable");
+  assert.equal(result.scenarios[0].scenario.consolidateLoans, true);
+  assert.equal(result.scenarios[0].paymentScheduleByLoan.length, 3);
+  assert.deepEqual(result.scenarios[0].paymentScheduleByLoan[2].servicingActions, [
+    "reschedule 7 years",
+    "rate -0.25%",
+    "consolidate",
+  ]);
+});
+
+test("buyout path can be recommended when CMV funds cover the buyout value", () => {
+  const buyoutCase = structuredClone(config.sampleCase);
+  buyoutCase.cashFlow.firstYear.balanceAvailable = 20000;
+  buyoutCase.cashFlow.firstYear.nonAgencyDebtAndTaxes = 5000;
+  buyoutCase.case.buyoutFundsAvailable = 2500000;
+  buyoutCase.case.nonEssentialAssetsAvailable = false;
+  buyoutCase.case.nonEssentialAssetLiquidationValue = 0;
+
+  const result = evaluateCase(buyoutCase, config);
+
+  assert.ok(result.recommendedScenarioId);
+  assert.equal(result.scenarios[0].scenario.buyoutAtCmv, true);
+  assert.deepEqual(result.scenarios[0].paymentScheduleByLoan[0].servicingActions, [
+    "buyout at cmv",
+  ]);
+  assert.equal(result.scenarios[0].governmentProtectionMetrics.cmvBuyoutValue > 0, true);
+});
+
 test("payload validation rejects missing required buckets", () => {
   const errors = validateEvaluationPayload({ case: {} });
   assert.deepEqual(errors, [
@@ -114,7 +165,7 @@ test("api exposes config and evaluation endpoints", async () => {
   assert.equal(configResponse.statusCode, 200);
   const configPayload = configResponse.payload;
   assert.equal(configPayload.sampleCase.case.state, "IA");
-  assert.equal(configPayload.casePresets.length, 3);
+  assert.equal(configPayload.casePresets.length, 5);
   assert.deepEqual(configPayload.locationOptions.IA.counties.includes("Polk"), true);
   assert.equal(configPayload.referenceData.loanTypes.some((item) => item.value === "operating"), true);
   assert.equal(typeof configPayload.policySummary.scoringWeights.feasibility, "number");

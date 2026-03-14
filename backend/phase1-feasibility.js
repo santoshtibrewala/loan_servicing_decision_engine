@@ -172,14 +172,15 @@ function calculateLoanResults(input, policyContext, scenario) {
       maxTerm
     );
     const annualPayment = computeAnnuityPayment(principalAfterWritedown, targetRate, newTerm);
-    const firstYearPayment = scenario.liquidateLoan
+    const firstYearPayment = scenario.liquidateLoan || scenario.buyoutAtCmv
       ? 0
       : scenario.deferralYears > 0
         ? annualPayment * 0.2
         : annualPayment;
     const appliedRate = servicingBlocked ? loan.existingRate : targetRate;
     const appliedTerm = servicingBlocked ? loan.remainingTermYears ?? 1 : newTerm;
-    const appliedRecommendedPayment = servicingBlocked ? loan.firstYearPayment : annualPayment;
+    const appliedRecommendedPayment =
+      servicingBlocked ? loan.firstYearPayment : scenario.buyoutAtCmv ? 0 : annualPayment;
     const appliedFirstYearPayment = servicingBlocked ? loan.firstYearPayment : firstYearPayment;
     const appliedWritedown = servicingBlocked ? 0 : writedown;
     const actualTermChange = Math.max(appliedTerm - (loan.remainingTermYears ?? 1), 0);
@@ -207,6 +208,7 @@ function calculateLoanResults(input, policyContext, scenario) {
         !servicingBlocked && scenario.deferralYears > 0 ? `defer ${scenario.deferralYears} years` : null,
         appliedWritedown > 0 ? `writedown ${toCurrency(appliedWritedown)}` : null,
         !servicingBlocked && scenario.consolidateLoans ? "consolidate" : null,
+        !servicingBlocked && scenario.buyoutAtCmv ? "buyout at cmv" : null,
         !servicingBlocked && scenario.liquidateLoan ? "liquidate" : null,
         !servicingBlocked && scenario.payInFull ? "pay in full" : null,
       ].filter(Boolean),
@@ -217,7 +219,9 @@ function calculateLoanResults(input, policyContext, scenario) {
 function calculateMargins(input, scenarioLoans, scenario) {
   const baselineFirstYear = getAdjustedBalance(input.cashFlow.firstYear);
   const support = scenario.conservationSupportAmount;
-  const firstYearPaymentTotal = sum(scenarioLoans.map((loan) => loan.recommendedPayment));
+  const firstYearPaymentTotal = scenario.buyoutAtCmv
+    ? 0
+    : sum(scenarioLoans.map((loan) => loan.recommendedPayment));
   const reservedFirstYearCash = baselineFirstYear * scenario.marginTarget;
 
   const firstYearAvailable = baselineFirstYear - reservedFirstYearCash + support;
@@ -245,6 +249,9 @@ function runPhase1Feasibility(input, policyContext, scenario) {
           ? null
           : constraints.deferralAllowed &&
             margins.firstYearAvailable >= margins.firstYearPaymentTotal,
+      buyoutFeasible: scenario.buyoutAtCmv
+        ? Number(input.case.buyoutFundsAvailable ?? 0) > 0
+        : null,
       liquidationFeasible: scenario.liquidateLoan ? true : null,
     },
     constraints,
@@ -260,32 +267,59 @@ function buildScenarioCombosForStage(activeConfig = defaultConfig, input = null,
   const marginTargets = buildMarginTargets(activeConfig, startMargin);
   const writedownAmounts = stage === "base" ? [0] : controls.writedownAmounts;
   const liquidationOptions = stage === "base" ? [false] : controls.liquidationOptions;
+  const buyoutOptions =
+    stage === "base"
+      ? [false]
+      : [...controls.buyoutOptions].sort((left, right) => Number(right) - Number(left));
   const consolidationOptions =
     (input?.existingLoans?.length ?? 0) > 1 ? controls.consolidationOptions : [false];
 
   for (const marginTarget of marginTargets) {
-    for (const termExtensionYears of controls.termExtensionYears) {
-      for (const rateReductionPercent of controls.rateReductionPercent) {
-        for (const deferralYears of controls.deferralYears) {
-          for (const conservationSupportAmount of controls.conservationSupportAmounts) {
-            for (const consolidateLoans of consolidationOptions) {
-              for (const writedownAmount of writedownAmounts) {
-                for (const liquidateLoan of liquidationOptions) {
-                  combos.push({
-                    marginTarget,
-                    termExtensionYears,
-                    rateReductionPercent,
-                    deferralYears,
-                    conservationSupportAmount,
-                    writedownAmount,
-                    conservationCancellationAmount: 0,
-                    consolidateLoans,
-                    liquidateLoan,
-                    payInFull: false,
-                    policyTieBreakTag: stage === "base" ? "restructure-first" : "writedown-or-liquidation",
-                  });
-                  if (combos.length >= controls.maxScenarioCount) {
-                    return combos;
+    for (const buyoutAtCmv of buyoutOptions) {
+      if (buyoutAtCmv) {
+        combos.push({
+          marginTarget,
+          termExtensionYears: 0,
+          rateReductionPercent: 0,
+          deferralYears: 0,
+          conservationSupportAmount: 0,
+          writedownAmount: 0,
+          conservationCancellationAmount: 0,
+          consolidateLoans: false,
+          buyoutAtCmv: true,
+          liquidateLoan: false,
+          payInFull: false,
+          policyTieBreakTag: "cmv-buyout",
+        });
+        if (combos.length >= controls.maxScenarioCount) {
+          return combos;
+        }
+        continue;
+      }
+      for (const termExtensionYears of controls.termExtensionYears) {
+        for (const rateReductionPercent of controls.rateReductionPercent) {
+          for (const deferralYears of controls.deferralYears) {
+            for (const conservationSupportAmount of controls.conservationSupportAmounts) {
+              for (const consolidateLoans of consolidationOptions) {
+                for (const writedownAmount of writedownAmounts) {
+                  for (const liquidateLoan of liquidationOptions) {
+                    combos.push({
+                      marginTarget,
+                      termExtensionYears,
+                      rateReductionPercent,
+                      deferralYears,
+                      conservationSupportAmount,
+                      writedownAmount,
+                      conservationCancellationAmount: 0,
+                      consolidateLoans,
+                      buyoutAtCmv: false,
+                      liquidateLoan,
+                      payInFull: false,
+                      policyTieBreakTag: stage === "base" ? "restructure-first" : "writedown-or-liquidation",
+                    });
+                    if (combos.length >= controls.maxScenarioCount) {
+                      return combos;
+                    }
                   }
                 }
               }

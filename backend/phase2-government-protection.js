@@ -51,32 +51,40 @@ function calculateGovernmentProtection(input, policyContext, scenario, scenarioL
       item.monthlyManagementCost * monthsHeld;
     const priorLiens = priorLienMap[item.propertyId] ?? 0;
     const netRecovery = Math.max(grossRecovery - liquidationCosts - priorLiens + managedIncomeOffset, 0);
+    const cmvBuyoutValue = Math.max(item.marketValue - priorLiens, 0);
 
     return {
       propertyId: item.propertyId,
       description: item.description,
       bucket,
       netRecovery: toCurrency(netRecovery),
+      cmvBuyoutValue: toCurrency(cmvBuyoutValue),
       linkedLoanIds: item.linkedLoanIds ?? [],
     };
   });
 
   const netRecoveryValue = toCurrency(sum(recoveryDetails.map((detail) => detail.netRecovery)));
+  const cmvBuyoutValue = toCurrency(
+    sum(recoveryDetails.map((detail) => detail.cmvBuyoutValue)),
+  );
   const projectedValue = toCurrency(
-    scenarioLoans.reduce((total, loan) => {
-      const firstYearPv = loan.recommendedPayment / (1 + policyContext.discountRate);
-      const remainingPayment = Math.max(loan.recommendedPayment, 0);
-      const remainingYears = Math.max(loan.termYears - 1, 0);
-      const annuityFactor =
-        remainingYears === 0
-          ? 0
-          : (1 - (1 + policyContext.discountRate) ** -remainingYears) / policyContext.discountRate;
-      const remainingStreamPv = (remainingPayment * annuityFactor) / (1 + policyContext.discountRate) ** 2;
-      return total + firstYearPv + remainingStreamPv;
-    }, 0)
+    scenario.buyoutAtCmv
+      ? cmvBuyoutValue
+      : scenarioLoans.reduce((total, loan) => {
+          const firstYearPv = loan.recommendedPayment / (1 + policyContext.discountRate);
+          const remainingPayment = Math.max(loan.recommendedPayment, 0);
+          const remainingYears = Math.max(loan.termYears - 1, 0);
+          const annuityFactor =
+            remainingYears === 0
+              ? 0
+              : (1 - (1 + policyContext.discountRate) ** -remainingYears) / policyContext.discountRate;
+          const remainingStreamPv = (remainingPayment * annuityFactor) / (1 + policyContext.discountRate) ** 2;
+          return total + firstYearPv + remainingStreamPv;
+        }, 0)
   );
   const coverageRatio = netRecoveryValue === 0 ? 1 : projectedValue / netRecoveryValue;
-  const writedownVsNrvRequired = scenario.writedownAmount > 0 || scenario.liquidateLoan;
+  const writedownVsNrvRequired =
+    scenario.writedownAmount > 0 || scenario.liquidateLoan || scenario.buyoutAtCmv;
 
   const writedownOrdering = [...scenarioLoans]
     .map((loan) => ({
@@ -105,6 +113,7 @@ function calculateGovernmentProtection(input, policyContext, scenario, scenarioL
       : null,
     writedownOrdering: writedownVsNrvRequired ? writedownOrdering : [],
     hmlPriority,
+    cmvBuyoutValue,
     netRecoveryValue,
     projectedValue,
     coverageRatio: toCurrency(coverageRatio),

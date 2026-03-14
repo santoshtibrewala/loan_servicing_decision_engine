@@ -76,6 +76,9 @@ function formatLabel(value) {
 // like `writedown 300000` into a readable currency string.
 function formatActionLabel(action) {
   const rawAction = String(action ?? '').trim();
+  if (rawAction.toLowerCase() === 'buyout at cmv') {
+    return 'Buyout At CMV';
+  }
   const amountMatch = rawAction.match(
     /^(writedown|support|conservation cancellation)\s+(-?\d+(?:\.\d+)?)$/i,
   );

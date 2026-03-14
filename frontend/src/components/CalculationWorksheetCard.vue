@@ -6,6 +6,16 @@ defineProps({
 });
 
 const emit = defineEmits(['print']);
+
+function toneClass(tone) {
+  if (tone === 'danger') {
+    return 'text-[#b42318]';
+  }
+  if (tone === 'success') {
+    return 'text-[#0f7b3d]';
+  }
+  return 'text-[#0f1c2e]';
+}
 </script>
 
 <template>
@@ -41,7 +51,9 @@ const emit = defineEmits(['print']);
             <td class="border-b border-[#d8e1e9] px-[10px] py-3 align-top">{{ row.category }}</td>
             <td class="border-b border-[#d8e1e9] px-[10px] py-3 align-top"><strong>{{ row.metric }}</strong></td>
             <td class="border-b border-[#d8e1e9] px-[10px] py-3 align-top">{{ row.formula }}</td>
-            <td class="border-b border-[#d8e1e9] px-[10px] py-3 align-top"><strong>{{ row.value }}</strong></td>
+            <td class="border-b border-[#d8e1e9] px-[10px] py-3 align-top">
+              <strong :class="toneClass(row.tone)">{{ row.value }}</strong>
+            </td>
           </tr>
         </tbody>
       </table>

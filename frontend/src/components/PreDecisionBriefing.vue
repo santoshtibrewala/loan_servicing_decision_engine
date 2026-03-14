@@ -7,6 +7,16 @@ defineProps({
 });
 
 const emit = defineEmits(['toggle']);
+
+function toneClass(tone) {
+  if (tone === 'danger') {
+    return 'text-[#b42318]';
+  }
+  if (tone === 'success') {
+    return 'text-[#0f7b3d]';
+  }
+  return 'text-[#143b5f]';
+}
 </script>
 
 <template>
@@ -46,12 +56,17 @@ const emit = defineEmits(['toggle']);
               <strong
                 v-for="line in item.value"
                 :key="`${section.title}-${item.label}-${line}`"
-                class="text-right text-[1rem] leading-[1.4] text-[#143b5f]"
+                class="text-right text-[1rem] leading-[1.4]"
+                :class="toneClass(item.tone)"
               >
                 {{ line }}
               </strong>
             </div>
-            <strong v-else class="max-w-[60%] text-right text-[1rem] leading-[1.4] text-[#143b5f]">
+            <strong
+              v-else
+              class="max-w-[60%] text-right text-[1rem] leading-[1.4]"
+              :class="toneClass(item.tone)"
+            >
               {{ item.value }}
             </strong>
           </div>

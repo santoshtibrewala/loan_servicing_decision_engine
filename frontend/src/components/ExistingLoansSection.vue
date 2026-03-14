@@ -1,5 +1,6 @@
 <script setup>
 import AccordionPanel from './AccordionPanel.vue';
+import FormattedNumberInput from './FormattedNumberInput.vue';
 import { useFormatters } from '../composables/useFormatters';
 
 // Existing loans are the largest repeating form group, so they were extracted
@@ -66,11 +67,11 @@ const { currencyCompact, yearsLabel } = useFormatters();
           <label class="grid gap-1.5 font-semibold text-[#293c4f]">Fund code<input v-model="loan.fundCode" class="w-full rounded-[10px] border-2 border-[#0e416a] bg-white px-[14px] py-3 text-[#17334d]" /></label>
           <label class="grid gap-1.5 font-semibold text-[#293c4f]">Loan ID<input v-model="loan.loanId" class="w-full rounded-[10px] border-2 border-[#0e416a] bg-white px-[14px] py-3 text-[#17334d]" /></label>
           <label class="grid gap-1.5 font-semibold text-[#293c4f]">Loan type<select v-model="loan.loanType" class="w-full rounded-[10px] border-2 border-[#0e416a] bg-white px-[14px] py-3 text-[#17334d]"><option v-for="option in loanTypeOptions" :key="option.value" :value="option.value">{{ option.label }}</option></select></label>
-          <label class="grid gap-1.5 font-semibold text-[#293c4f]">Principal<input v-model.number="loan.principal" type="number" min="0" class="w-full rounded-[10px] border-2 border-[#0e416a] bg-white px-[14px] py-3 text-[#17334d]" /></label>
-          <label class="grid gap-1.5 font-semibold text-[#293c4f]">Accrued interest<input v-model.number="loan.accruedInterest" type="number" min="0" class="w-full rounded-[10px] border-2 border-[#0e416a] bg-white px-[14px] py-3 text-[#17334d]" /></label>
-          <label class="grid gap-1.5 font-semibold text-[#293c4f]">Existing rate<input v-model.number="loan.existingRate" type="number" step="0.001" min="0" class="w-full rounded-[10px] border-2 border-[#0e416a] bg-white px-[14px] py-3 text-[#17334d]" /></label>
+          <label class="grid gap-1.5 font-semibold text-[#293c4f]">Principal<FormattedNumberInput v-model="loan.principal" kind="amount" :min="0" class="w-full rounded-[10px] border-2 border-[#0e416a] bg-white px-[14px] py-3 text-[#17334d]" /></label>
+          <label class="grid gap-1.5 font-semibold text-[#293c4f]">Accrued interest<FormattedNumberInput v-model="loan.accruedInterest" kind="amount" :min="0" class="w-full rounded-[10px] border-2 border-[#0e416a] bg-white px-[14px] py-3 text-[#17334d]" /></label>
+          <label class="grid gap-1.5 font-semibold text-[#293c4f]">Existing rate<FormattedNumberInput v-model="loan.existingRate" kind="percent" :scale="100" :decimals="2" :min="0" class="w-full rounded-[10px] border-2 border-[#0e416a] bg-white px-[14px] py-3 text-[#17334d]" /></label>
           <label class="grid gap-1.5 font-semibold text-[#293c4f]">Remaining term<input v-model.number="loan.remainingTermYears" type="number" min="1" class="w-full rounded-[10px] border-2 border-[#0e416a] bg-white px-[14px] py-3 text-[#17334d]" /></label>
-          <label class="grid gap-1.5 font-semibold text-[#293c4f]">First-year payment<input v-model.number="loan.firstYearPayment" type="number" min="0" class="w-full rounded-[10px] border-2 border-[#0e416a] bg-white px-[14px] py-3 text-[#17334d]" /></label>
+          <label class="grid gap-1.5 font-semibold text-[#293c4f]">First-year payment<FormattedNumberInput v-model="loan.firstYearPayment" kind="amount" :min="0" class="w-full rounded-[10px] border-2 border-[#0e416a] bg-white px-[14px] py-3 text-[#17334d]" /></label>
         </div>
       </article>
     </div>

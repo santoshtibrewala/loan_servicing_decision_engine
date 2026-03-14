@@ -27,6 +27,7 @@ function scoreScenario(
     scenario.termExtensionYears / 10 +
     scenario.deferralYears / 3 +
     (scenario.consolidateLoans ? 0.15 : 0) +
+    (scenario.buyoutAtCmv ? 0.35 : 0) +
     (scenario.payInFull ? 0.2 : 0);
   const concessionMinimizationScore = Math.min(
     Math.max(1 - concessionBurden / 3, 0),
@@ -43,9 +44,10 @@ function scoreScenario(
           scenario.writedownAmount > 0,
           scenario.conservationCancellationAmount > 0,
           scenario.consolidateLoans,
+          scenario.buyoutAtCmv,
           scenario.payInFull,
         ].filter(Boolean).length /
-          8,
+          9,
       0,
     ),
     1,
@@ -119,6 +121,13 @@ function buildScenarioExplanation(
   if (scenario.liquidateLoan) {
     phrases.push('liquidation path proposed');
   }
+  if (scenario.buyoutAtCmv) {
+    phrases.push(
+      `cmv buyout proposed at $${toCurrency(
+        governmentProtection.cmvBuyoutValue,
+      ).toLocaleString()}`,
+    );
+  }
   if (scenario.consolidateLoans) {
     phrases.push('loans consolidated');
   }
@@ -177,6 +186,21 @@ function validateScenario(
     reasons.push(
       "Writedown should not be considered before non-essential assets are applied to delinquency.",
     );
+  }
+  if (scenario.buyoutAtCmv) {
+    const availableBuyoutFunds =
+      toCurrency(input.case.buyoutFundsAvailable ?? 0) +
+      toCurrency(input.case.nonEssentialAssetLiquidationValue ?? 0);
+    if (
+      policyContext.servicingRules.requireBuyoutFundsForCmv !== false &&
+      availableBuyoutFunds < governmentProtection.cmvBuyoutValue
+    ) {
+      reasons.push(
+        `buyout funds ${toCurrency(availableBuyoutFunds)} are below CMV buyout value ${toCurrency(
+          governmentProtection.cmvBuyoutValue,
+        )}`,
+      );
+    }
   }
   if (
     governmentProtection.writedownVsNrvRequired &&
@@ -245,6 +269,7 @@ function runPhase3Optimizer(
     scenario.writedownAmount +
     scenario.conservationSupportAmount +
     scenario.conservationCancellationAmount +
+    (scenario.buyoutAtCmv ? 10000 : 0) +
     (scenario.liquidateLoan ? 5000 : 0);
 
   return {
@@ -258,6 +283,8 @@ function runPhase3Optimizer(
       rejectionReasons.length === 0
         ? scenario.liquidateLoan
           ? 'LIQUIDATION'
+          : scenario.buyoutAtCmv
+            ? 'BUYOUT'
           : 'FEASIBLE'
         : 'REJECTED',
     actionsByLoan,
@@ -296,6 +323,7 @@ function runPhase3Optimizer(
       optimizer: {
         policyTieBreakTag: scenario.policyTieBreakTag,
         consolidateLoans: scenario.consolidateLoans,
+        buyoutAtCmv: scenario.buyoutAtCmv,
         liquidateLoan: scenario.liquidateLoan,
         payInFull: scenario.payInFull,
         conservationCancellationAmount: scenario.conservationCancellationAmount,

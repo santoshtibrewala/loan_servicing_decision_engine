@@ -106,6 +106,7 @@ Current gate checks:
 The engine also produces warnings for:
 
 - non-essential assets that appear sufficient to cure delinquency before writedown
+- buyout funding that is below the CMV buyout value
 
 This context is returned in `metadata.eligibility` and copied into
 `scenario.phaseOutputs.eligibility`.
@@ -123,9 +124,15 @@ The current config searches combinations across:
 - support amount
 - consolidation flag
 - writedown amount
+- buyout flag
 - liquidation flag
 
 The engine starts with the lender-entered debt margin percentage and steps down to `0%`.
+
+The seeded presets now include dedicated consolidation examples:
+
+- `Case 4 - Kansas Delinquent Loan Consolidation`
+- `Case 5 - Texas Multi-Loan Consolidation Relief`
 
 Example from current config:
 
@@ -177,6 +184,15 @@ newTerm = remainingTerm + termExtension + consolidationTermBoost
 recommendedPayment = annuity(principalAfterWritedown, targetRate, newTerm)
 ```
 
+When `consolidateLoans = true`, the current PoC also applies:
+
+```text
+consolidationRateAdjustment = 0.25%
+consolidationTermBoost = 2 years
+```
+
+subject to each loan's configured maximum term.
+
 If a loan is marked with `servicingAction = N`, A-STAR keeps current terms and labels the action as `Maintain Current Terms`.
 
 The engine now also classifies the structural action by loan type:
@@ -207,6 +223,34 @@ recommendedRepayment = $41,219.71
 cashFlowMargin = ($46,000 - $41,219.71) / $41,219.71
 cashFlowMargin = 11.6% (shown as 12% after rounding)
 ```
+
+### 4c. Consolidation feasibility pattern
+
+For the Kansas consolidation preset, the current PoC behaves like this:
+
+```text
+adjustedBalance = $73,200 - $18,000 = $55,200
+```
+
+Best non-consolidated path:
+
+```text
+OL-501 rescheduled payment = $31,728.37
+OL-502 rescheduled payment = $24,087.85
+total = $55,816.22
+margin = ($55,200 - $55,816.22) / $55,816.22 = -1.1%
+```
+
+Consolidated path:
+
+```text
+OL-501 consolidated payment = $31,341.95
+OL-502 consolidated payment = $23,796.28
+total = $55,138.23
+margin = ($55,200 - $55,138.23) / $55,138.23 = 0.1%
+```
+
+That is why the Kansas case recommends consolidation: it turns an almost-feasible delinquent borrower case into the first valid servicing path.
 
 ### 4a. Eligibility timing check
 
@@ -289,6 +333,24 @@ Current sample:
 $384,514.72 / $329,728 = 1.17
 ```
 
+### 7a. CMV buyout value
+
+The current PoC uses a simplified buyout proxy:
+
+```text
+cmvBuyoutValue = marketValue - priorLiens
+```
+
+aggregated across collateral items.
+
+When the buyout path is evaluated, the engine checks:
+
+```text
+buyoutFundsAvailable + nonEssentialAssetLiquidationValue >= cmvBuyoutValue
+```
+
+If that funding test fails, the buyout scenario is rejected.
+
 ## Worked sample recommendation
 
 Current sample recommendation:
@@ -298,6 +360,37 @@ Current sample recommendation:
 - remaining term is `30 years`
 - max term is `40 years`
 - limited-resource reduction is not allowed on this seed loan
+
+## Worked consolidation recommendations
+
+### Case 4: Kansas Delinquent Loan Consolidation
+
+Top recommendation:
+
+- `OL-501: Reschedule 6 Years, Rate -0.25%, Consolidate`
+- `OL-502: Reschedule 5 Years, Rate -0.25%, Consolidate`
+
+Technical reason:
+
+- both loans are operating loans, so the engine uses `rescheduling`
+- both loans share `chattel` security, which is eligible for consolidation in current policy
+- both loans have the same first-lien position
+- the non-consolidated alternative fails affordability by a small amount
+- the consolidation adjustment lowers the annual payment enough to clear feasibility
+
+### Case 5: Texas Multi-Loan Consolidation Relief
+
+Top recommendation:
+
+- `OL-611: Reschedule 6 Years, Rate -0.25%, Consolidate`
+- `OL-612: Reschedule 5 Years, Rate -0.25%, Consolidate`
+- `EM-613: Reschedule 7 Years, Rate -0.25%, Consolidate`
+
+Technical reason:
+
+- the case contains three delinquent borrower loans with shared eligible collateral
+- the policy allows consolidation because the included loans are not secured by excluded real-estate collateral
+- the consolidation adjustment improves affordability enough to outrank the non-consolidated alternatives while preserving coverage above the configured floor
 
 Recommended loan outcome:
 
@@ -366,6 +459,28 @@ writedown-capped scenario lowers payment to $84,303.03
 
 So under the current cap and rule set, writedown is needed to create a feasible
 plan.
+
+## Worked buyout recommendation
+
+A buyout recommendation can now occur when normal restructuring is not feasible
+but identified buyout funds are large enough to cover the CMV amount.
+
+Example buyout test case:
+
+```text
+balanceAvailable = $20,000
+nonAgencyDebtAndTaxes = $5,000
+buyoutFundsAvailable = $2,500,000
+```
+
+That produces:
+
+```text
+adjusted operating income = $15,000
+base restructure = not feasible
+buyout funding = sufficient
+recommended action = Buyout At CMV
+```
 
 ## UI calculation detail table
 
